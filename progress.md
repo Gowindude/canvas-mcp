@@ -50,3 +50,12 @@ Append-only. Newest entries at the bottom.
   matter where the MCP client launches it from. Verified from a foreign cwd;
   real env vars still take precedence. Recommended path: put token in `.env`
   (git-ignored) + `claude mcp add canvas -- <venv python> <server.py>`.
+- Registered the server in Claude Code (local scope, in `~/.claude.json` for
+  this project). First add via the user dropped the `server.py` arg (line-break
+  in paste) → empty Args, failed to connect. Removed and re-added correctly →
+  **✔ Connected**.
+- **Live end-to-end verification passed** against real Canvas: token valid,
+  `get_current_user` returned the account, `get_courses` returned 5 active
+  courses. Full chain (.env → server → Canvas API) confirmed working.
+- Note: tools become available in a Claude Code session started *after* the
+  server was added — restart to use them conversationally.
