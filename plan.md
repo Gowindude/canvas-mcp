@@ -32,7 +32,7 @@ Claude, published to a public GitHub repo.
 | `get_course_details` | `GET /courses/{id}?include[]=syllabus_body&include[]=term&...` |
 | `get_submission` | `GET /courses/{id}/assignments/{aid}/submissions/self?include[]=submission_comments` |
 | `get_discussion_topics` | `GET /courses/{id}/discussion_topics` |
-| `get_discussion_entries` | `GET /courses/{id}/discussion_topics/{topic_id}/entries` |
+| `get_discussion_entries` | `GET /courses/{id}/discussion_topics/{topic_id}/view` (full nested thread; `participants` map resolves author names) |
 | `get_overdue_assignments` | `GET /courses/{id}/assignments?bucket=overdue&include[]=submission` |
 | `get_rubric` | `GET /courses/{id}/rubrics/{rubric_id}` |
 | `get_pages` | `GET /courses/{id}/pages` |

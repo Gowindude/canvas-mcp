@@ -202,6 +202,29 @@ def _chunk(items: list[Any], size: int) -> list[list[Any]]:
     return [items[i : i + size] for i in range(0, len(items), size)]
 
 
+def _build_discussion_entry(
+    raw: dict[str, Any], participants: dict[Any, Optional[str]]
+) -> dict[str, Any]:
+    """Recursively shape a discussion entry from the topic ``/view`` payload.
+
+    The ``/view`` endpoint returns entries with ``user_id`` (resolved against a
+    separate participants list) and a nested ``replies`` array, so this builds
+    the full threaded tree with plain-text messages.
+    """
+
+    deleted = raw.get("deleted")
+    return {
+        "id": raw.get("id"),
+        "author": participants.get(raw.get("user_id")),
+        "created_at": raw.get("created_at"),
+        "message": "[deleted]" if deleted else strip_html(raw.get("message")),
+        "replies": [
+            _build_discussion_entry(reply, participants)
+            for reply in (raw.get("replies") or [])
+        ],
+    }
+
+
 # ---------------------------------------------------------------------------
 # Tools
 # ---------------------------------------------------------------------------
@@ -679,35 +702,34 @@ async def get_discussion_topics(course_id: str) -> Union[list[dict[str, Any]], s
 async def get_discussion_entries(
     course_id: str, topic_id: str
 ) -> Union[list[dict[str, Any]], str]:
-    """List the top-level entries (posts) in a discussion topic.
+    """Return the full threaded posts of a discussion topic, with nested replies.
 
     Args:
         course_id: The Canvas course id.
         topic_id: The Canvas discussion topic id.
 
-    Returns each entry's id, author, created date and a plain-text message (HTML
-    stripped). Returns an error string on failure.
+    Uses Canvas's discussion "view" so each top-level post includes a nested
+    ``replies`` list (replies to replies included, recursively). Every entry has
+    its id, author, created date and plain-text message (HTML stripped). Returns
+    an error string on failure.
     """
 
     try:
-        entries = await _paginate(
-            f"/courses/{course_id}/discussion_topics/{topic_id}/entries"
+        data = await _get_one(
+            f"/courses/{course_id}/discussion_topics/{topic_id}/view"
         )
     except CanvasError as exc:
         return str(exc)
 
-    result: list[dict[str, Any]] = []
-    for entry in entries:
-        user = entry.get("user") or {}
-        result.append(
-            {
-                "id": entry.get("id"),
-                "author": entry.get("user_name") or user.get("display_name"),
-                "created_at": entry.get("created_at"),
-                "message": strip_html(entry.get("message")),
-            }
-        )
-    return result
+    participants = {
+        person.get("id"): person.get("display_name")
+        for person in (data.get("participants") or [])
+    }
+
+    return [
+        _build_discussion_entry(entry, participants)
+        for entry in (data.get("view") or [])
+    ]
 
 
 @mcp.tool()

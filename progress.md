@@ -75,3 +75,9 @@ Append-only. Newest entries at the bottom.
   `get_page_content('42936','welcome-letter')` returned the full page body even
   though the course's Pages index tab is disabled (get_pages 404s gracefully in
   that case).
+- Upgraded `get_discussion_entries` to return the **full nested thread**: it now
+  uses the discussion `/view` endpoint and a recursive `_build_discussion_entry`
+  helper so each post carries a nested `replies` list (author names resolved via
+  the `participants` map; deleted posts shown as `[deleted]`). Previously only
+  top-level posts were returned. Verified live: "Introduction/Hello Thread"
+  now includes the reply Ethan→Katherine that was missing before.

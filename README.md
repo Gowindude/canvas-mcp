@@ -22,7 +22,7 @@ language.
 | `get_course_details(course_id)` | One course's details, including the syllabus and term (HTML stripped). |
 | `get_submission(course_id, assignment_id)` | Your submission for one assignment: score, grade, state, late/missing flags and instructor comments. |
 | `get_discussion_topics(course_id)` | A course's discussion topics (excluding announcements), as plain text. |
-| `get_discussion_entries(course_id, topic_id)` | The posts within a discussion topic, as plain text. |
+| `get_discussion_entries(course_id, topic_id)` | The full threaded posts of a discussion topic, including nested replies, as plain text. |
 | `get_overdue_assignments(course_id)` | Past-due assignments for a course (Canvas "overdue" bucket). |
 | `get_rubric(course_id, rubric_id)` | A rubric's grading criteria and ratings. |
 | `get_pages(course_id)` | List a course's wiki/content pages (title + slug + link). |
