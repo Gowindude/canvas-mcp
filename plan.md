@@ -29,6 +29,16 @@ Claude, published to a public GitHub repo.
 | `get_current_user` | `GET /users/self` |
 | `get_modules` | `GET /courses/{id}/modules?include[]=items` |
 | `search_course_content` | `GET /courses/{id}/assignments?search_term=` + `GET /courses/{id}/modules?search_term=&include[]=items` |
+| `get_course_details` | `GET /courses/{id}?include[]=syllabus_body&include[]=term&...` |
+| `get_submission` | `GET /courses/{id}/assignments/{aid}/submissions/self?include[]=submission_comments` |
+| `get_discussion_topics` | `GET /courses/{id}/discussion_topics` |
+| `get_discussion_entries` | `GET /courses/{id}/discussion_topics/{topic_id}/entries` |
+| `get_overdue_assignments` | `GET /courses/{id}/assignments?bucket=overdue&include[]=submission` |
+| `get_rubric` | `GET /courses/{id}/rubrics/{rubric_id}` |
+
+Write operations from the reference (submit assignment, file upload, post/reply
+discussion) are intentionally **excluded** to keep the server strictly
+read-only.
 
 ## Key decisions
 - Calendar events: fetch active courses first to build `context_codes` and a

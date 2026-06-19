@@ -19,6 +19,12 @@ language.
 | `get_current_user` | The authenticated user's id, name and email — handy for verifying your token. |
 | `get_modules(course_id)` | A course's modules and their items (pages, assignments, files, ...). |
 | `search_course_content(course_id, search_term)` | Search a course's assignments and modules for a term. |
+| `get_course_details(course_id)` | One course's details, including the syllabus and term (HTML stripped). |
+| `get_submission(course_id, assignment_id)` | Your submission for one assignment: score, grade, state, late/missing flags and instructor comments. |
+| `get_discussion_topics(course_id)` | A course's discussion topics (excluding announcements), as plain text. |
+| `get_discussion_entries(course_id, topic_id)` | The posts within a discussion topic, as plain text. |
+| `get_overdue_assignments(course_id)` | Past-due assignments for a course (Canvas "overdue" bucket). |
+| `get_rubric(course_id, rubric_id)` | A rubric's grading criteria and ratings. |
 
 All tools are **read-only** — this server never modifies anything in Canvas.
 

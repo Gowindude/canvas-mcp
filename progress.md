@@ -59,3 +59,8 @@ Append-only. Newest entries at the bottom.
   courses. Full chain (.env → server → Canvas API) confirmed working.
 - Note: tools become available in a Claude Code session started *after* the
   server was added — restart to use them conversationally.
+- Added the remaining read-only tools (per user request to add "all" read-only
+  features): `get_course_details`, `get_submission`, `get_discussion_topics`,
+  `get_discussion_entries`, `get_overdue_assignments`, `get_rubric`. Total now
+  **15 tools**. Write ops (submit/upload/post/reply) remain intentionally
+  excluded. Live-tested the new tools against real Canvas (course 42936): all OK.

@@ -552,6 +552,239 @@ async def search_course_content(
     }
 
 
+@mcp.tool()
+async def get_course_details(course_id: str) -> Union[dict[str, Any], str]:
+    """Return detailed information about a single course.
+
+    Args:
+        course_id: The Canvas course id.
+
+    Includes the syllabus and public description (both HTML-stripped), term and
+    start/end dates. Returns an error string on failure.
+    """
+
+    try:
+        course = await _get_one(
+            f"/courses/{course_id}",
+            {
+                "include[]": [
+                    "syllabus_body",
+                    "term",
+                    "public_description",
+                    "total_students",
+                ]
+            },
+        )
+    except CanvasError as exc:
+        return str(exc)
+
+    term = course.get("term") or {}
+    return {
+        "id": course.get("id"),
+        "name": course.get("name"),
+        "course_code": course.get("course_code"),
+        "enrollment_type": _enrollment_type(course),
+        "syllabus": strip_html(course.get("syllabus_body")),
+        "public_description": strip_html(course.get("public_description")),
+        "term": term.get("name"),
+        "start_date": course.get("start_at") or term.get("start_at"),
+        "end_date": course.get("end_at") or term.get("end_at"),
+        "total_students": course.get("total_students"),
+    }
+
+
+@mcp.tool()
+async def get_submission(
+    course_id: str, assignment_id: str
+) -> Union[dict[str, Any], str]:
+    """Return the user's own submission for a single assignment.
+
+    Args:
+        course_id: The Canvas course id.
+        assignment_id: The Canvas assignment id.
+
+    Includes the score, letter grade, submission state, late/missing flags and
+    any instructor feedback comments (HTML stripped). Returns an error string on
+    failure.
+    """
+
+    try:
+        submission = await _get_one(
+            f"/courses/{course_id}/assignments/{assignment_id}/submissions/self",
+            {"include[]": "submission_comments"},
+        )
+    except CanvasError as exc:
+        return str(exc)
+
+    comments = [
+        {
+            "author": comment.get("author_name"),
+            "comment": strip_html(comment.get("comment")),
+            "created_at": comment.get("created_at"),
+        }
+        for comment in (submission.get("submission_comments") or [])
+    ]
+
+    return {
+        "assignment_id": submission.get("assignment_id"),
+        "score": submission.get("score"),
+        "grade": submission.get("grade"),
+        "submitted_at": submission.get("submitted_at"),
+        "workflow_state": submission.get("workflow_state"),
+        "late": submission.get("late"),
+        "missing": submission.get("missing"),
+        "excused": submission.get("excused"),
+        "attempt": submission.get("attempt"),
+        "comments": comments,
+    }
+
+
+@mcp.tool()
+async def get_discussion_topics(course_id: str) -> Union[list[dict[str, Any]], str]:
+    """List the discussion topics for a course (excluding announcements).
+
+    Args:
+        course_id: The Canvas course id.
+
+    Returns each topic's id, title, posted date, last reply date, reply count
+    and a plain-text body (HTML stripped). Returns an error string on failure.
+    """
+
+    try:
+        topics = await _paginate(f"/courses/{course_id}/discussion_topics")
+    except CanvasError as exc:
+        return str(exc)
+
+    result: list[dict[str, Any]] = []
+    for topic in topics:
+        result.append(
+            {
+                "id": topic.get("id"),
+                "title": topic.get("title"),
+                "posted_date": topic.get("posted_at") or topic.get("created_at"),
+                "last_reply_at": topic.get("last_reply_at"),
+                "reply_count": topic.get("discussion_subentry_count"),
+                "body": strip_html(topic.get("message")),
+            }
+        )
+    return result
+
+
+@mcp.tool()
+async def get_discussion_entries(
+    course_id: str, topic_id: str
+) -> Union[list[dict[str, Any]], str]:
+    """List the top-level entries (posts) in a discussion topic.
+
+    Args:
+        course_id: The Canvas course id.
+        topic_id: The Canvas discussion topic id.
+
+    Returns each entry's id, author, created date and a plain-text message (HTML
+    stripped). Returns an error string on failure.
+    """
+
+    try:
+        entries = await _paginate(
+            f"/courses/{course_id}/discussion_topics/{topic_id}/entries"
+        )
+    except CanvasError as exc:
+        return str(exc)
+
+    result: list[dict[str, Any]] = []
+    for entry in entries:
+        user = entry.get("user") or {}
+        result.append(
+            {
+                "id": entry.get("id"),
+                "author": entry.get("user_name") or user.get("display_name"),
+                "created_at": entry.get("created_at"),
+                "message": strip_html(entry.get("message")),
+            }
+        )
+    return result
+
+
+@mcp.tool()
+async def get_overdue_assignments(course_id: str) -> Union[list[dict[str, Any]], str]:
+    """List the overdue assignments for a course.
+
+    Args:
+        course_id: The Canvas course id.
+
+    Uses Canvas's "overdue" bucket (past-due assignments that can still be
+    submitted and have no graded submission). Returns id, name, due date,
+    points possible and submission types. Returns an error string on failure.
+    """
+
+    try:
+        assignments = await _paginate(
+            f"/courses/{course_id}/assignments",
+            {"bucket": "overdue", "include[]": "submission"},
+        )
+    except CanvasError as exc:
+        return str(exc)
+
+    result: list[dict[str, Any]] = []
+    for assignment in assignments:
+        result.append(
+            {
+                "id": assignment.get("id"),
+                "name": assignment.get("name"),
+                "due_date": assignment.get("due_at"),
+                "points_possible": assignment.get("points_possible"),
+                "submission_types": assignment.get("submission_types", []),
+            }
+        )
+    return result
+
+
+@mcp.tool()
+async def get_rubric(
+    course_id: str, rubric_id: str
+) -> Union[dict[str, Any], str]:
+    """Return a course rubric and its grading criteria.
+
+    Args:
+        course_id: The Canvas course id.
+        rubric_id: The Canvas rubric id.
+
+    Returns the rubric title, total points and each criterion (description,
+    points and possible ratings), with all descriptions HTML-stripped. Returns
+    an error string on failure.
+    """
+
+    try:
+        rubric = await _get_one(f"/courses/{course_id}/rubrics/{rubric_id}")
+    except CanvasError as exc:
+        return str(exc)
+
+    criteria = []
+    for criterion in rubric.get("data") or []:
+        ratings = [
+            {
+                "description": strip_html(rating.get("description")),
+                "points": rating.get("points"),
+            }
+            for rating in (criterion.get("ratings") or [])
+        ]
+        criteria.append(
+            {
+                "description": strip_html(criterion.get("description")),
+                "long_description": strip_html(criterion.get("long_description")),
+                "points": criterion.get("points"),
+                "ratings": ratings,
+            }
+        )
+
+    return {
+        "id": rubric.get("id"),
+        "title": rubric.get("title"),
+        "points_possible": rubric.get("points_possible"),
+        "criteria": criteria,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
