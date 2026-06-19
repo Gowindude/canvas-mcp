@@ -18,5 +18,27 @@ Append-only. Newest entries at the bottom.
 - Wrote `requirements.txt`, `.env.example`, `README.md` (token steps, setup,
   run, Windows Claude Desktop config, verification).
 - Wrote context files: `prompt.md`, `plan.md`, this `progress.md`, `CLAUDE.md`.
-- User shared reference repo `lucanardinocchi/canvas-mcp` (TypeScript) — to be
-  reviewed for improvements before committing.
+- Verified `server.py` compiles (`py_compile`).
+- Created GitHub repo `Gowindude/canvas-mcp` (public) via `gh repo create`.
+- **Commit 1 (pushed):** "Initial commit: Canvas MCP server with FastMCP" —
+  baseline of all files. `.env` confirmed git-ignored (only `.env.example`
+  tracked).
+- User asked for frequent-ish commits + shared reference repo
+  `lucanardinocchi/canvas-mcp` (TypeScript). Cloned and reviewed it.
+- Folded in improvements (read-only only): added `get_current_user`
+  (`/users/self`), `get_modules` (modules + items), and
+  `search_course_content`. **Deliberately did NOT port** the reference's write
+  operations (submit assignment, file upload, post/reply discussion) — they are
+  destructive, were not requested, and keeping the server read-only is safer.
+- Updated README tool table + verification steps for the new tools.
+- Set up `.venv` and installed pinned deps to validate versions and smoke-test
+  imports/tool registration. **Smoke test passed:** all 9 tools register, app
+  name "Canvas", `API_BASE` builds correctly, `strip_html` works.
+- User attempted Node-style steps (`npm install` / `npm run build` /
+  `dist/index.js`) that belong to the TS reference repo. Flagged the conflict;
+  user confirmed **keep Python**.
+- Adopted the reference repo's config "workaround": pass `CANVAS_BASE_URL` /
+  `CANVAS_API_TOKEN` via the `env` block in `claude_desktop_config.json` so no
+  separate `.env` is needed. Updated README's Claude Desktop section to use an
+  `env` block + the venv interpreter path. User's institution:
+  `https://bartonline.instructure.com`.

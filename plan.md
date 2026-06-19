@@ -26,6 +26,9 @@ Claude, published to a public GitHub repo.
 | `get_grades` | `GET /courses/{id}/enrollments?user_id=self` + `GET /courses/{id}/students/submissions?student_ids[]=self&include[]=assignment` |
 | `get_upcoming_events` | `GET /calendar_events?type=assignment|event&start_date&end_date&context_codes[]=course_*` (chunked ≤10 codes) |
 | `get_announcements` | `GET /courses/{id}/discussion_topics?only_announcements=true&per_page=10` |
+| `get_current_user` | `GET /users/self` |
+| `get_modules` | `GET /courses/{id}/modules?include[]=items` |
+| `search_course_content` | `GET /courses/{id}/assignments?search_term=` + `GET /courses/{id}/modules?search_term=&include[]=items` |
 
 ## Key decisions
 - Calendar events: fetch active courses first to build `context_codes` and a

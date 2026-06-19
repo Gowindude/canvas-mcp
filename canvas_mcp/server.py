@@ -444,6 +444,107 @@ async def get_announcements(course_id: str) -> Union[list[dict[str, Any]], str]:
     return result
 
 
+@mcp.tool()
+async def get_current_user() -> Union[dict[str, Any], str]:
+    """Return the authenticated Canvas user's profile.
+
+    Useful for confirming your token works. Returns id, name, email and login
+    id. Returns an error string on failure.
+    """
+
+    try:
+        user = await _get_one("/users/self")
+    except CanvasError as exc:
+        return str(exc)
+
+    return {
+        "id": user.get("id"),
+        "name": user.get("name"),
+        "email": user.get("primary_email") or user.get("email"),
+        "login_id": user.get("login_id"),
+    }
+
+
+@mcp.tool()
+async def get_modules(course_id: str) -> Union[list[dict[str, Any]], str]:
+    """List the modules for a course, including each module's items.
+
+    Args:
+        course_id: The Canvas course id.
+
+    Returns a list of modules (id, name, state) each with its items (id, title,
+    type, html_url). Returns an error string on failure.
+    """
+
+    try:
+        modules = await _paginate(
+            f"/courses/{course_id}/modules", {"include[]": "items"}
+        )
+    except CanvasError as exc:
+        return str(exc)
+
+    result: list[dict[str, Any]] = []
+    for module in modules:
+        items = [
+            {
+                "id": item.get("id"),
+                "title": item.get("title"),
+                "type": item.get("type"),
+                "html_url": item.get("html_url"),
+            }
+            for item in (module.get("items") or [])
+        ]
+        result.append(
+            {
+                "id": module.get("id"),
+                "name": module.get("name"),
+                "state": module.get("state"),
+                "items": items,
+            }
+        )
+    return result
+
+
+@mcp.tool()
+async def search_course_content(
+    course_id: str, search_term: str
+) -> Union[dict[str, Any], str]:
+    """Search a course's assignments and modules for a term.
+
+    Args:
+        course_id: The Canvas course id.
+        search_term: Text to search for (matched by Canvas server-side).
+
+    Returns an object with matching assignments and modules. Returns an error
+    string on failure.
+    """
+
+    try:
+        assignments = await _paginate(
+            f"/courses/{course_id}/assignments", {"search_term": search_term}
+        )
+        modules = await _paginate(
+            f"/courses/{course_id}/modules",
+            {"search_term": search_term, "include[]": "items"},
+        )
+    except CanvasError as exc:
+        return str(exc)
+
+    return {
+        "assignments": [
+            {
+                "id": a.get("id"),
+                "name": a.get("name"),
+                "due_date": a.get("due_at"),
+            }
+            for a in assignments
+        ],
+        "modules": [
+            {"id": m.get("id"), "name": m.get("name")} for m in modules
+        ],
+    }
+
+
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
