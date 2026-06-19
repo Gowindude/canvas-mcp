@@ -64,3 +64,14 @@ Append-only. Newest entries at the bottom.
   `get_discussion_entries`, `get_overdue_assignments`, `get_rubric`. Total now
   **15 tools**. Write ops (submit/upload/post/reply) remain intentionally
   excluded. Live-tested the new tools against real Canvas (course 42936): all OK.
+- Canvas Desktop (MSIX/Store build) wired up successfully — config lives at the
+  virtualized path under `...Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\
+  Claude\claude_desktop_config.json` (added `mcpServers.canvas`). User confirmed
+  it works ("who am I logged in as" → Taran Govindu).
+- Per user request to surface/open module links: enriched `get_modules` items
+  with `external_url` + `page_url`, and added `get_pages` and
+  `get_page_content` (reads login-gated Canvas page bodies via the token).
+  **17 tools total.** Live-tested: module items expose page slugs;
+  `get_page_content('42936','welcome-letter')` returned the full page body even
+  though the course's Pages index tab is disabled (get_pages 404s gracefully in
+  that case).

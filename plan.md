@@ -35,6 +35,8 @@ Claude, published to a public GitHub repo.
 | `get_discussion_entries` | `GET /courses/{id}/discussion_topics/{topic_id}/entries` |
 | `get_overdue_assignments` | `GET /courses/{id}/assignments?bucket=overdue&include[]=submission` |
 | `get_rubric` | `GET /courses/{id}/rubrics/{rubric_id}` |
+| `get_pages` | `GET /courses/{id}/pages` |
+| `get_page_content` | `GET /courses/{id}/pages/{page_url}` |
 
 Write operations from the reference (submit assignment, file upload, post/reply
 discussion) are intentionally **excluded** to keep the server strictly

@@ -25,6 +25,13 @@ language.
 | `get_discussion_entries(course_id, topic_id)` | The posts within a discussion topic, as plain text. |
 | `get_overdue_assignments(course_id)` | Past-due assignments for a course (Canvas "overdue" bucket). |
 | `get_rubric(course_id, rubric_id)` | A rubric's grading criteria and ratings. |
+| `get_pages(course_id)` | List a course's wiki/content pages (title + slug + link). |
+| `get_page_content(course_id, page_url)` | Read a Canvas page's full text (login-gated pages fetched via your token). |
+
+`get_modules` items now also expose `external_url` (the real external website
+for external-link items) and `page_url` (the slug to feed `get_page_content`),
+in addition to the Canvas `html_url` — so module links can actually be opened
+or read.
 
 All tools are **read-only** — this server never modifies anything in Canvas.
 

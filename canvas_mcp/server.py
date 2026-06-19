@@ -479,8 +479,11 @@ async def get_modules(course_id: str) -> Union[list[dict[str, Any]], str]:
     Args:
         course_id: The Canvas course id.
 
-    Returns a list of modules (id, name, state) each with its items (id, title,
-    type, html_url). Returns an error string on failure.
+    Returns a list of modules (id, name, state) each with its items. Every item
+    includes all available links: ``html_url`` (open it in Canvas),
+    ``external_url`` (the real external website, for external-link/tool items)
+    and ``page_url`` (the slug to pass to ``get_page_content`` for Page items).
+    Returns an error string on failure.
     """
 
     try:
@@ -498,6 +501,8 @@ async def get_modules(course_id: str) -> Union[list[dict[str, Any]], str]:
                 "title": item.get("title"),
                 "type": item.get("type"),
                 "html_url": item.get("html_url"),
+                "external_url": item.get("external_url"),
+                "page_url": item.get("page_url"),
             }
             for item in (module.get("items") or [])
         ]
@@ -782,6 +787,64 @@ async def get_rubric(
         "title": rubric.get("title"),
         "points_possible": rubric.get("points_possible"),
         "criteria": criteria,
+    }
+
+
+@mcp.tool()
+async def get_pages(course_id: str) -> Union[list[dict[str, Any]], str]:
+    """List the wiki/content pages in a course.
+
+    Args:
+        course_id: The Canvas course id.
+
+    Returns each page's title, its ``page_url`` slug (pass to
+    ``get_page_content`` to read the body), the Canvas ``html_url`` and the last
+    updated date. Returns an error string on failure.
+    """
+
+    try:
+        pages = await _paginate(f"/courses/{course_id}/pages")
+    except CanvasError as exc:
+        return str(exc)
+
+    return [
+        {
+            "title": page.get("title"),
+            "page_url": page.get("url"),
+            "html_url": page.get("html_url"),
+            "updated_at": page.get("updated_at"),
+        }
+        for page in pages
+    ]
+
+
+@mcp.tool()
+async def get_page_content(
+    course_id: str, page_url: str
+) -> Union[dict[str, Any], str]:
+    """Read the full text content of a single Canvas page.
+
+    Args:
+        course_id: The Canvas course id.
+        page_url: The page's slug (the ``page_url`` from ``get_modules`` items
+            or ``get_pages``). A numeric page id also works.
+
+    Canvas pages are login-protected, so this fetches the page through the API
+    with your token and returns the body as plain text (HTML stripped) — useful
+    for pulling a module page's content directly into the conversation. Returns
+    an error string on failure.
+    """
+
+    try:
+        page = await _get_one(f"/courses/{course_id}/pages/{page_url}")
+    except CanvasError as exc:
+        return str(exc)
+
+    return {
+        "title": page.get("title"),
+        "html_url": page.get("html_url"),
+        "updated_at": page.get("updated_at"),
+        "body": strip_html(page.get("body")),
     }
 
 
