@@ -42,3 +42,11 @@ Append-only. Newest entries at the bottom.
   separate `.env` is needed. Updated README's Claude Desktop section to use an
   `env` block + the venv interpreter path. User's institution:
   `https://bartonline.instructure.com`.
+- User has **no Claude Desktop install** (no `%APPDATA%\Claude` folder); the
+  JSON they found was the Desktop *preferences* file (cowork/ccd), not
+  `claude_desktop_config.json`. They're driving via **Claude Code** instead.
+- Made `.env` loading cwd-independent: `load_dotenv` now targets the project
+  root (`Path(__file__).parent.parent/.env`) so the server finds the token no
+  matter where the MCP client launches it from. Verified from a foreign cwd;
+  real env vars still take precedence. Recommended path: put token in `.env`
+  (git-ignored) + `claude mcp add canvas -- <venv python> <server.py>`.

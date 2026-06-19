@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, Optional, Union
 
 import httpx
@@ -25,8 +26,14 @@ from fastmcp import FastMCP
 # Configuration
 # ---------------------------------------------------------------------------
 
-# Load variables from a local .env file (if present) into the environment.
-load_dotenv()
+# Load variables from a .env file (if present) into the environment. We look
+# for .env next to the project root (the parent of this package) so the server
+# finds it no matter what working directory it is launched from (e.g. when an
+# MCP client like Claude Desktop / Claude Code spawns it). Real environment
+# variables always take precedence over .env values.
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+load_dotenv(_PROJECT_ROOT / ".env")
+load_dotenv()  # fallback: also honour a .env in the current working directory
 
 CANVAS_API_TOKEN: Optional[str] = os.getenv("CANVAS_API_TOKEN")
 CANVAS_BASE_URL: Optional[str] = os.getenv("CANVAS_BASE_URL")
