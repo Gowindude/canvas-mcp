@@ -45,6 +45,7 @@ These **modify** Canvas and are disabled unless you set
 | `create_discussion_topic(course_id, title, message)` | Create a new discussion topic. |
 | `submit_assignment(course_id, assignment_id, submission_type, text?, url?, file_path?)` | Submit an assignment (`online_text_entry`, `online_url`, or `online_upload`). |
 | `post_submission_comment(course_id, assignment_id, comment)` | Comment on your own submission. |
+| `delete_discussion_entry(course_id, topic_id, entry_id)` | Delete one of your own discussion posts/replies (irreversible). |
 
 The read tools are always available. The write tools above do nothing — they
 return a "writes are disabled" message — unless you explicitly opt in via
@@ -235,8 +236,8 @@ commands above by hand once it is configured.
 
 By default this server is **read-only** — it can look at Canvas but never change
 it. The write tools (`post_discussion_entry`, `reply_to_discussion_entry`,
-`create_discussion_topic`, `submit_assignment`, `post_submission_comment`) are
-disabled until you explicitly turn them on.
+`create_discussion_topic`, `submit_assignment`, `post_submission_comment`,
+`delete_discussion_entry`) are disabled until you explicitly turn them on.
 
 ### Enabling writes
 

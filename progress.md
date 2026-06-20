@@ -95,3 +95,6 @@ Append-only. Newest entries at the bottom.
     courses. Verified safely: compiles, all 22 register, gate BLOCKS every write
     with no network when disabled, and OPENS to local validation when enabled.
     The only true test is a user-chosen low-stakes write.
+- Added `delete_discussion_entry` (write, gated) so a post→delete round-trip can
+  safely verify writes end-to-end. **23 tools total.** Verified: compiles,
+  registers, gate blocks with no network.

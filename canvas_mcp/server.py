@@ -1214,6 +1214,41 @@ async def post_submission_comment(
     }
 
 
+@mcp.tool()
+async def delete_discussion_entry(
+    course_id: str, topic_id: str, entry_id: str
+) -> Union[dict[str, Any], str]:
+    """Delete one of your own discussion posts or replies. (Write operation.)
+
+    Args:
+        course_id: The Canvas course id.
+        topic_id: The discussion topic id.
+        entry_id: The id of the entry to delete (from
+            ``get_discussion_entries``). You can only delete your own posts.
+
+    Requires CANVAS_ENABLE_WRITES=true. This is irreversible. Returns a
+    confirmation, or an error string on failure / when writes are disabled.
+    """
+
+    if not WRITES_ENABLED:
+        return WRITES_DISABLED_MESSAGE
+
+    try:
+        result = await _write_request(
+            "DELETE",
+            f"/courses/{course_id}/discussion_topics/{topic_id}"
+            f"/entries/{entry_id}",
+        )
+    except CanvasError as exc:
+        return str(exc)
+
+    return {
+        "status": "deleted",
+        "id": entry_id,
+        "deleted": result.get("deleted", True),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------

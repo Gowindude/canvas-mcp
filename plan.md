@@ -47,6 +47,7 @@ Claude, published to a public GitHub repo.
 | `create_discussion_topic` | `POST /courses/{id}/discussion_topics` |
 | `submit_assignment` | `POST /courses/{id}/assignments/{aid}/submissions` (+ 3-step inst-fs upload for `online_upload`) |
 | `post_submission_comment` | `PUT /courses/{id}/assignments/{aid}/submissions/self` |
+| `delete_discussion_entry` | `DELETE /courses/{id}/discussion_topics/{topic_id}/entries/{entry_id}` |
 
 Safety design:
 - `CANVAS_ENABLE_WRITES` env var (default `false`). Each write tool checks it for
