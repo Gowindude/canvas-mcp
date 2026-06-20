@@ -12,6 +12,7 @@ Run with either:
 
 from __future__ import annotations
 
+import mimetypes
 import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -61,9 +62,27 @@ HEADERS: dict[str, str] = {
 }
 
 REQUEST_TIMEOUT = httpx.Timeout(30.0)
+# File uploads can be large/slow, so they get a longer timeout.
+UPLOAD_TIMEOUT = httpx.Timeout(120.0)
 
 # Canvas limits the calendar API to at most 10 context codes per request.
 MAX_CONTEXT_CODES = 10
+
+
+def _env_truthy(value: Optional[str]) -> bool:
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+# Safety switch for write operations (posting, replying, submitting). Disabled
+# by default — read-only. Set CANVAS_ENABLE_WRITES=true in the environment/.env
+# (and restart the MCP client) to allow the server to modify Canvas.
+WRITES_ENABLED: bool = _env_truthy(os.getenv("CANVAS_ENABLE_WRITES", "false"))
+
+WRITES_DISABLED_MESSAGE = (
+    "Error: Write operations are disabled. This server is read-only until you "
+    "opt in. Set CANVAS_ENABLE_WRITES=true in your .env file, then fully restart "
+    "Claude Desktop / your MCP client, and try again."
+)
 
 mcp = FastMCP("Canvas")
 
@@ -172,6 +191,103 @@ async def _get_one(path: str, params: Optional[dict[str, Any]] = None) -> dict[s
             response = await client.get(path, params=params or {})
             response.raise_for_status()
             return response.json()
+    except httpx.HTTPStatusError as exc:
+        raise CanvasError(_http_error_message(exc)) from exc
+    except httpx.RequestError as exc:
+        raise CanvasError(_request_error_message(exc)) from exc
+
+
+async def _write_request(
+    method: str, path: str, data: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    """Perform a state-changing Canvas request (POST/PUT) and return its JSON.
+
+    This is the single choke-point for all writes: it refuses to run unless
+    ``WRITES_ENABLED`` is set, so no write tool can bypass the safety toggle.
+    Raises :class:`CanvasError` on failure.
+    """
+
+    if not WRITES_ENABLED:
+        raise CanvasError(WRITES_DISABLED_MESSAGE)
+
+    try:
+        async with httpx.AsyncClient(
+            base_url=API_BASE, headers=HEADERS, timeout=REQUEST_TIMEOUT
+        ) as client:
+            response = await client.request(method, path, data=data)
+            response.raise_for_status()
+            if not response.content:
+                return {}
+            return response.json()
+    except httpx.HTTPStatusError as exc:
+        raise CanvasError(_http_error_message(exc)) from exc
+    except httpx.RequestError as exc:
+        raise CanvasError(_request_error_message(exc)) from exc
+
+
+async def _upload_submission_file(
+    course_id: str, assignment_id: str, file_path: str
+) -> Any:
+    """Upload a local file for an assignment submission; return its Canvas file id.
+
+    Implements Canvas's 3-step upload flow: (1) tell Canvas about the file and
+    get a pre-signed upload target, (2) POST the bytes to that target with NO
+    Canvas auth header (the file field must come last), (3) read back the new
+    file id, following a redirect if inst-fs returns one. Raises
+    :class:`CanvasError` on failure.
+    """
+
+    path = Path(file_path).expanduser()
+    if not path.is_file():
+        raise CanvasError(f"Error: file not found at {file_path!s}.")
+
+    size = path.stat().st_size
+    content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+
+    try:
+        async with httpx.AsyncClient(
+            base_url=API_BASE, headers=HEADERS, timeout=UPLOAD_TIMEOUT
+        ) as client:
+            # Step 1 — register the upload with Canvas.
+            init = await client.post(
+                f"/courses/{course_id}/assignments/{assignment_id}"
+                "/submissions/self/files",
+                data={
+                    "name": path.name,
+                    "size": str(size),
+                    "content_type": content_type,
+                },
+            )
+            init.raise_for_status()
+            info = init.json()
+            upload_url = info.get("upload_url")
+            upload_params = info.get("upload_params") or {}
+            if not upload_url:
+                raise CanvasError(
+                    "Error: Canvas did not return a file upload URL."
+                )
+
+            # Step 2 — upload the bytes to the pre-signed target. No auth header,
+            # and the file field must be sent last (after the upload params).
+            async with httpx.AsyncClient(
+                timeout=UPLOAD_TIMEOUT, follow_redirects=False
+            ) as uploader:
+                with path.open("rb") as handle:
+                    upload = await uploader.post(
+                        upload_url,
+                        data={k: str(v) for k, v in upload_params.items()},
+                        files={"file": (path.name, handle, content_type)},
+                    )
+
+            # Step 3 — inst-fs returns either the file JSON directly, or a 3xx
+            # redirect to a confirmation endpoint we must GET (with auth).
+            location = upload.headers.get("location")
+            if upload.status_code in (301, 302, 303) and location:
+                confirm = await client.get(location)
+                confirm.raise_for_status()
+                return confirm.json().get("id")
+            upload.raise_for_status()
+            return upload.json().get("id")
     except httpx.HTTPStatusError as exc:
         raise CanvasError(_http_error_message(exc)) from exc
     except httpx.RequestError as exc:
@@ -867,6 +983,234 @@ async def get_page_content(
         "html_url": page.get("html_url"),
         "updated_at": page.get("updated_at"),
         "body": strip_html(page.get("body")),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Write tools (gated behind CANVAS_ENABLE_WRITES — read-only by default)
+# ---------------------------------------------------------------------------
+#
+# Every tool below changes Canvas. They refuse to run unless
+# CANVAS_ENABLE_WRITES is truthy, and the underlying _write_request helper
+# enforces the same gate as a second line of defence. Writes are NOT idempotent
+# — a retried call can double-post or double-submit.
+
+
+@mcp.tool()
+async def post_discussion_entry(
+    course_id: str, topic_id: str, message: str
+) -> Union[dict[str, Any], str]:
+    """Post a new top-level entry to a discussion topic. (Write operation.)
+
+    Args:
+        course_id: The Canvas course id.
+        topic_id: The discussion topic id.
+        message: The body of the post (plain text or HTML).
+
+    Requires CANVAS_ENABLE_WRITES=true. Returns the created entry, or an error
+    string on failure / when writes are disabled.
+    """
+
+    if not WRITES_ENABLED:
+        return WRITES_DISABLED_MESSAGE
+
+    try:
+        result = await _write_request(
+            "POST",
+            f"/courses/{course_id}/discussion_topics/{topic_id}/entries",
+            {"message": message},
+        )
+    except CanvasError as exc:
+        return str(exc)
+
+    return {
+        "status": "posted",
+        "id": result.get("id"),
+        "created_at": result.get("created_at"),
+        "message": strip_html(result.get("message")),
+    }
+
+
+@mcp.tool()
+async def reply_to_discussion_entry(
+    course_id: str, topic_id: str, entry_id: str, message: str
+) -> Union[dict[str, Any], str]:
+    """Reply to an existing post within a discussion topic. (Write operation.)
+
+    Args:
+        course_id: The Canvas course id.
+        topic_id: The discussion topic id.
+        entry_id: The id of the post you are replying to (from
+            ``get_discussion_entries``).
+        message: The reply body (plain text or HTML).
+
+    Requires CANVAS_ENABLE_WRITES=true. Returns the created reply, or an error
+    string on failure / when writes are disabled.
+    """
+
+    if not WRITES_ENABLED:
+        return WRITES_DISABLED_MESSAGE
+
+    try:
+        result = await _write_request(
+            "POST",
+            f"/courses/{course_id}/discussion_topics/{topic_id}"
+            f"/entries/{entry_id}/replies",
+            {"message": message},
+        )
+    except CanvasError as exc:
+        return str(exc)
+
+    return {
+        "status": "posted",
+        "id": result.get("id"),
+        "parent_id": entry_id,
+        "created_at": result.get("created_at"),
+        "message": strip_html(result.get("message")),
+    }
+
+
+@mcp.tool()
+async def create_discussion_topic(
+    course_id: str, title: str, message: str
+) -> Union[dict[str, Any], str]:
+    """Create a new discussion topic in a course. (Write operation.)
+
+    Args:
+        course_id: The Canvas course id.
+        title: The topic title.
+        message: The opening body of the topic (plain text or HTML).
+
+    Requires CANVAS_ENABLE_WRITES=true. Returns the created topic, or an error
+    string on failure / when writes are disabled.
+    """
+
+    if not WRITES_ENABLED:
+        return WRITES_DISABLED_MESSAGE
+
+    try:
+        result = await _write_request(
+            "POST",
+            f"/courses/{course_id}/discussion_topics",
+            {"title": title, "message": message},
+        )
+    except CanvasError as exc:
+        return str(exc)
+
+    return {
+        "status": "created",
+        "id": result.get("id"),
+        "title": result.get("title"),
+        "html_url": result.get("html_url"),
+    }
+
+
+@mcp.tool()
+async def submit_assignment(
+    course_id: str,
+    assignment_id: str,
+    submission_type: str,
+    text: Optional[str] = None,
+    url: Optional[str] = None,
+    file_path: Optional[str] = None,
+) -> Union[dict[str, Any], str]:
+    """Submit an assignment on the user's behalf. (Write operation.)
+
+    Args:
+        course_id: The Canvas course id.
+        assignment_id: The assignment id.
+        submission_type: One of ``online_text_entry``, ``online_url`` or
+            ``online_upload``.
+        text: Required for ``online_text_entry`` — the submission body.
+        url: Required for ``online_url`` — the website URL to submit.
+        file_path: Required for ``online_upload`` — an absolute path to a local
+            file to upload and submit.
+
+    Requires CANVAS_ENABLE_WRITES=true. The assignment must actually accept the
+    chosen submission type. Returns the resulting submission, or an error string
+    on failure / when writes are disabled.
+    """
+
+    # Gate first — before any file-upload work begins.
+    if not WRITES_ENABLED:
+        return WRITES_DISABLED_MESSAGE
+
+    valid_types = {"online_text_entry", "online_url", "online_upload"}
+    if submission_type not in valid_types:
+        return (
+            f"Error: submission_type must be one of {sorted(valid_types)}, "
+            f"got {submission_type!r}."
+        )
+
+    data: dict[str, Any] = {"submission[submission_type]": submission_type}
+    try:
+        if submission_type == "online_text_entry":
+            if not text:
+                return "Error: 'text' is required for online_text_entry."
+            data["submission[body]"] = text
+        elif submission_type == "online_url":
+            if not url:
+                return "Error: 'url' is required for online_url."
+            data["submission[url]"] = url
+        else:  # online_upload
+            if not file_path:
+                return "Error: 'file_path' is required for online_upload."
+            file_id = await _upload_submission_file(
+                course_id, assignment_id, file_path
+            )
+            if not file_id:
+                return "Error: file upload did not return a file id."
+            data["submission[file_ids][]"] = str(file_id)
+
+        result = await _write_request(
+            "POST",
+            f"/courses/{course_id}/assignments/{assignment_id}/submissions",
+            data,
+        )
+    except CanvasError as exc:
+        return str(exc)
+
+    return {
+        "status": "submitted",
+        "assignment_id": result.get("assignment_id"),
+        "submitted_at": result.get("submitted_at"),
+        "workflow_state": result.get("workflow_state"),
+        "submission_type": result.get("submission_type"),
+        "preview_url": result.get("preview_url"),
+    }
+
+
+@mcp.tool()
+async def post_submission_comment(
+    course_id: str, assignment_id: str, comment: str
+) -> Union[dict[str, Any], str]:
+    """Add a comment to the user's own submission for an assignment. (Write.)
+
+    Args:
+        course_id: The Canvas course id.
+        assignment_id: The assignment id.
+        comment: The comment text.
+
+    Requires CANVAS_ENABLE_WRITES=true. Returns a confirmation, or an error
+    string on failure / when writes are disabled.
+    """
+
+    if not WRITES_ENABLED:
+        return WRITES_DISABLED_MESSAGE
+
+    try:
+        result = await _write_request(
+            "PUT",
+            f"/courses/{course_id}/assignments/{assignment_id}/submissions/self",
+            {"comment[text_comment]": comment},
+        )
+    except CanvasError as exc:
+        return str(exc)
+
+    return {
+        "status": "commented",
+        "assignment_id": result.get("assignment_id"),
+        "comment": comment,
     }
 
 

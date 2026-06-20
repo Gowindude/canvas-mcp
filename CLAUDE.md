@@ -29,6 +29,10 @@ normal.
   not an uncaught exception.
 - Pagination must follow the `Link` `rel="next"` header (`_paginate` helper).
 - Keep dependency versions pinned in `requirements.txt`.
+- **Writes are gated.** All state-changing tools must go through `_write_request`
+  (which enforces `CANVAS_ENABLE_WRITES`) and also check the toggle themselves.
+  Default is read-only. Never live-test write tools against a real course —
+  they create real, often irreversible, instructor/classmate-visible content.
 
 ## Conventions
 - Add a `progress.md` entry for meaningful changes.

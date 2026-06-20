@@ -81,3 +81,17 @@ Append-only. Newest entries at the bottom.
   the `participants` map; deleted posts shown as `[deleted]`). Previously only
   top-level posts were returned. Verified live: "Introduction/Hello Thread"
   now includes the reply Ethan→Katherine that was missing before.
+- Added **write capabilities** (user request), gated behind a safety toggle
+  `CANVAS_ENABLE_WRITES` (default off). New tools: `post_discussion_entry`,
+  `reply_to_discussion_entry`, `create_discussion_topic`, `submit_assignment`
+  (text/url/file-upload), `post_submission_comment`. **22 tools total.**
+  - Gate enforced at TWO layers: each tool checks `WRITES_ENABLED` for a
+    friendly message, and the shared `_write_request` POST/PUT helper raises if
+    disabled (choke-point). `submit_assignment` gates before any upload work.
+  - File upload = inst-fs 3-step flow (register → no-auth presigned upload, file
+    last → confirm id).
+  - **Deliberately did NOT live-test writes** (per advisor): a real post/submit
+    creates instructor/classmate-visible, often irreversible content in Taran's
+    courses. Verified safely: compiles, all 22 register, gate BLOCKS every write
+    with no network when disabled, and OPENS to local validation when enabled.
+    The only true test is a user-chosen low-stakes write.

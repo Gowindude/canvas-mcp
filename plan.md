@@ -38,9 +38,26 @@ Claude, published to a public GitHub repo.
 | `get_pages` | `GET /courses/{id}/pages` |
 | `get_page_content` | `GET /courses/{id}/pages/{page_url}` |
 
-Write operations from the reference (submit assignment, file upload, post/reply
-discussion) are intentionally **excluded** to keep the server strictly
-read-only.
+### Write tools (gated behind `CANVAS_ENABLE_WRITES`, default off)
+
+| Tool | Canvas endpoint |
+| --- | --- |
+| `post_discussion_entry` | `POST /courses/{id}/discussion_topics/{topic_id}/entries` |
+| `reply_to_discussion_entry` | `POST /courses/{id}/discussion_topics/{topic_id}/entries/{entry_id}/replies` |
+| `create_discussion_topic` | `POST /courses/{id}/discussion_topics` |
+| `submit_assignment` | `POST /courses/{id}/assignments/{aid}/submissions` (+ 3-step inst-fs upload for `online_upload`) |
+| `post_submission_comment` | `PUT /courses/{id}/assignments/{aid}/submissions/self` |
+
+Safety design:
+- `CANVAS_ENABLE_WRITES` env var (default `false`). Each write tool checks it for
+  a friendly message; the shared `_write_request` POST/PUT helper enforces the
+  same gate as a choke-point so no write can bypass it. `submit_assignment`
+  checks the gate **before** any file-upload work.
+- File upload uses the inst-fs 3-step flow: register → upload bytes to the
+  pre-signed URL (no auth header, file field last) → read/confirm the file id.
+- Writes are **not idempotent**; the toggle is global (shared `.env`) and read
+  once at startup (restart to change).
+- Destructive ops (delete/edit) are still excluded.
 
 ## Key decisions
 - Calendar events: fetch active courses first to build `context_codes` and a

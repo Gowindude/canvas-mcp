@@ -33,7 +33,22 @@ for external-link items) and `page_url` (the slug to feed `get_page_content`),
 in addition to the Canvas `html_url` — so module links can actually be opened
 or read.
 
-All tools are **read-only** — this server never modifies anything in Canvas.
+### Write tools (opt-in — off by default)
+
+These **modify** Canvas and are disabled unless you set
+`CANVAS_ENABLE_WRITES=true` (see [Write operations](#write-operations-optional)).
+
+| Tool | Description |
+| --- | --- |
+| `post_discussion_entry(course_id, topic_id, message)` | Post a new top-level entry to a discussion. |
+| `reply_to_discussion_entry(course_id, topic_id, entry_id, message)` | Reply to an existing discussion post. |
+| `create_discussion_topic(course_id, title, message)` | Create a new discussion topic. |
+| `submit_assignment(course_id, assignment_id, submission_type, text?, url?, file_path?)` | Submit an assignment (`online_text_entry`, `online_url`, or `online_upload`). |
+| `post_submission_comment(course_id, assignment_id, comment)` | Comment on your own submission. |
+
+The read tools are always available. The write tools above do nothing — they
+return a "writes are disabled" message — unless you explicitly opt in via
+`CANVAS_ENABLE_WRITES`. See [Write operations](#write-operations-optional).
 
 ---
 
@@ -213,6 +228,52 @@ commands above by hand once it is configured.
   — generate a new one (Section 1).
 - **HTTP 404 errors:** double-check the `course_id` and that
   `CANVAS_BASE_URL` matches your institution.
+
+---
+
+## Write operations (optional)
+
+By default this server is **read-only** — it can look at Canvas but never change
+it. The write tools (`post_discussion_entry`, `reply_to_discussion_entry`,
+`create_discussion_topic`, `submit_assignment`, `post_submission_comment`) are
+disabled until you explicitly turn them on.
+
+### Enabling writes
+
+1. Set the toggle in your `.env`:
+
+   ```ini
+   CANVAS_ENABLE_WRITES=true
+   ```
+
+   (Or, if you configure the server via an `env` block in
+   `claude_desktop_config.json`, add `"CANVAS_ENABLE_WRITES": "true"` there.)
+2. **Fully restart** Claude Desktop / your MCP client — the toggle is read once
+   at startup.
+
+While disabled, every write tool simply returns a "writes are disabled" message
+and makes no network call.
+
+### Please read before enabling
+
+- ⚠️ **These actions are real and mostly irreversible.** A posted discussion
+  reply or a submitted assignment is visible to your instructor and classmates.
+  Treat it like clicking "Submit" yourself.
+- ⚠️ **Writes are not idempotent.** If a tool call is retried, it can
+  double-post or double-submit. Review what Claude is about to do.
+- **The toggle is global.** `.env` is shared by every client that launches this
+  server (both Claude Desktop and Claude Code), so enabling writes enables them
+  everywhere.
+- **`submit_assignment`** requires a `submission_type` the assignment actually
+  accepts: `online_text_entry` (pass `text`), `online_url` (pass `url`), or
+  `online_upload` (pass an absolute `file_path`).
+
+### Testing writes safely
+
+Because a write creates real content, test with something low-stakes that **you
+choose** — e.g. post a short reply to a practice/introductions discussion you
+don't mind editing, then delete it in Canvas. Don't test by submitting a real
+graded assignment.
 
 ---
 
