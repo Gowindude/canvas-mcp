@@ -1256,6 +1256,188 @@ async def get_course_roster(course_id: str) -> Union[list[dict[str, Any]], str]:
     return result
 
 
+@mcp.tool()
+async def get_quiz_submissions(
+    course_id: str, quiz_id: str
+) -> Union[list[dict[str, Any]], str]:
+    """Return the user's own attempts and scores for a quiz.
+
+    Args:
+        course_id: The Canvas course id.
+        quiz_id: The quiz id (from ``get_quizzes``).
+
+    Returns each attempt's number, score, kept score, state, attempts remaining
+    and start/finish times — useful for reviewing how you did. Returns an error
+    string on failure.
+    """
+
+    try:
+        payload = await _get_one(
+            f"/courses/{course_id}/quizzes/{quiz_id}/submissions"
+        )
+    except CanvasError as exc:
+        return str(exc)
+
+    submissions = payload.get("quiz_submissions") or []
+    return [
+        {
+            "id": sub.get("id"),
+            "attempt": sub.get("attempt"),
+            "score": sub.get("score"),
+            "kept_score": sub.get("kept_score"),
+            "workflow_state": sub.get("workflow_state"),
+            "attempts_left": sub.get("attempts_left"),
+            "started_at": sub.get("started_at"),
+            "finished_at": sub.get("finished_at"),
+        }
+        for sub in submissions
+    ]
+
+
+@mcp.tool()
+async def get_groups(course_id: str) -> Union[list[dict[str, Any]], str]:
+    """List the student groups in a course.
+
+    Args:
+        course_id: The Canvas course id.
+
+    Returns each group's id, name, member count and description (HTML stripped).
+    Returns an error string on failure.
+    """
+
+    try:
+        groups = await _paginate(f"/courses/{course_id}/groups")
+    except CanvasError as exc:
+        return str(exc)
+
+    return [
+        {
+            "id": g.get("id"),
+            "name": g.get("name"),
+            "members_count": g.get("members_count"),
+            "description": strip_html(g.get("description")),
+        }
+        for g in groups
+    ]
+
+
+@mcp.tool()
+async def get_conversations() -> Union[list[dict[str, Any]], str]:
+    """List the user's Canvas inbox conversations (most recent first).
+
+    Returns each conversation's id, subject, a plain-text preview of the last
+    message, the last message time and the message count. Use
+    ``get_conversation`` to read a full thread. Returns an error string on
+    failure.
+    """
+
+    try:
+        conversations = await _paginate("/conversations")
+    except CanvasError as exc:
+        return str(exc)
+
+    return [
+        {
+            "id": c.get("id"),
+            "subject": c.get("subject"),
+            "last_message": strip_html(c.get("last_message")),
+            "last_message_at": c.get("last_message_at"),
+            "message_count": c.get("message_count"),
+            "workflow_state": c.get("workflow_state"),
+        }
+        for c in conversations
+    ]
+
+
+@mcp.tool()
+async def get_conversation(conversation_id: str) -> Union[dict[str, Any], str]:
+    """Read a single Canvas inbox conversation thread.
+
+    Args:
+        conversation_id: The conversation id (from ``get_conversations``).
+
+    Returns the subject, participants and every message (author, time and
+    plain-text body). Returns an error string on failure.
+    """
+
+    try:
+        convo = await _get_one(f"/conversations/{conversation_id}")
+    except CanvasError as exc:
+        return str(exc)
+
+    names = {
+        person.get("id"): person.get("name")
+        for person in (convo.get("participants") or [])
+    }
+    messages = [
+        {
+            "author": names.get(msg.get("author_id")),
+            "created_at": msg.get("created_at"),
+            "body": strip_html(msg.get("body")),
+        }
+        for msg in (convo.get("messages") or [])
+    ]
+    return {
+        "id": convo.get("id"),
+        "subject": convo.get("subject"),
+        "participants": list(names.values()),
+        "messages": messages,
+    }
+
+
+@mcp.tool()
+async def download_file(
+    file_id: str, destination_path: str
+) -> Union[dict[str, Any], str]:
+    """Download a Canvas file to a local path on this machine.
+
+    Args:
+        file_id: The Canvas file id (from ``get_files`` or a module item).
+        destination_path: Where to save the file on the local filesystem.
+
+    This reads from Canvas and writes to your local disk — it does NOT modify
+    anything in Canvas, so it works regardless of the write toggle. Returns the
+    saved path and byte count, or an error string on failure.
+    """
+
+    try:
+        meta = await _get_one(f"/files/{file_id}")
+    except CanvasError as exc:
+        return str(exc)
+
+    url = meta.get("url")
+    if not url:
+        return "Error: Canvas did not return a download URL for this file."
+
+    try:
+        async with httpx.AsyncClient(
+            headers=HEADERS, timeout=UPLOAD_TIMEOUT, follow_redirects=True
+        ) as client:
+            response = await client.get(url)
+            response.raise_for_status()
+            content = response.content
+    except httpx.HTTPStatusError as exc:
+        return _http_error_message(exc)
+    except httpx.RequestError as exc:
+        return _request_error_message(exc)
+
+    try:
+        dest = Path(destination_path).expanduser()
+        if dest.parent:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(content)
+    except OSError as exc:
+        return f"Error: could not write file to {destination_path!s}: {exc}"
+
+    return {
+        "status": "downloaded",
+        "file_id": file_id,
+        "name": meta.get("display_name") or meta.get("filename"),
+        "path": str(dest),
+        "bytes": len(content),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Write tools (gated behind CANVAS_ENABLE_WRITES — read-only by default)
 # ---------------------------------------------------------------------------
@@ -1682,6 +1864,151 @@ async def send_message(
         "conversation_id": conversation.get("id"),
         "recipient_ids": [str(r) for r in recipient_ids],
         "subject": subject,
+    }
+
+
+@mcp.tool()
+async def reply_to_conversation(
+    conversation_id: str, body: str
+) -> Union[dict[str, Any], str]:
+    """Reply to an existing Canvas inbox conversation. (Write operation.)
+
+    Args:
+        conversation_id: The conversation id (from ``get_conversations``).
+        body: The reply text.
+
+    Requires CANVAS_ENABLE_WRITES=true. Sends a real message to everyone on the
+    thread. Returns a confirmation, or an error string on failure / when writes
+    are disabled.
+    """
+
+    if not WRITES_ENABLED:
+        return WRITES_DISABLED_MESSAGE
+
+    try:
+        result = await _write_request(
+            "POST",
+            f"/conversations/{conversation_id}/add_message",
+            {"body": body},
+        )
+    except CanvasError as exc:
+        return str(exc)
+
+    return {
+        "status": "sent",
+        "conversation_id": result.get("id") or conversation_id,
+    }
+
+
+@mcp.tool()
+async def create_planner_note(
+    title: str,
+    details: Optional[str] = None,
+    todo_date: Optional[str] = None,
+    course_id: Optional[str] = None,
+) -> Union[dict[str, Any], str]:
+    """Create a personal planner to-do note. (Write operation.)
+
+    Args:
+        title: The note title.
+        details: Optional longer description.
+        todo_date: Optional ISO 8601 date/datetime the note is for.
+        course_id: Optional course id to associate the note with.
+
+    Requires CANVAS_ENABLE_WRITES=true. Planner notes are private to you.
+    Returns the created note, or an error string on failure / when writes are
+    disabled.
+    """
+
+    if not WRITES_ENABLED:
+        return WRITES_DISABLED_MESSAGE
+
+    data: dict[str, Any] = {"title": title}
+    if details:
+        data["details"] = details
+    if todo_date:
+        data["todo_date"] = todo_date
+    if course_id:
+        data["course_id"] = course_id
+
+    try:
+        result = await _write_request("POST", "/planner_notes", data)
+    except CanvasError as exc:
+        return str(exc)
+
+    return {
+        "status": "created",
+        "id": result.get("id"),
+        "title": result.get("title"),
+        "todo_date": result.get("todo_date"),
+    }
+
+
+@mcp.tool()
+async def set_course_nickname(
+    course_id: str, nickname: str
+) -> Union[dict[str, Any], str]:
+    """Set a personal nickname for a course. (Write operation.)
+
+    Args:
+        course_id: The Canvas course id.
+        nickname: The nickname to display for the course (only you see it).
+
+    Requires CANVAS_ENABLE_WRITES=true. This is cosmetic and only affects your
+    own view. Returns the new nickname, or an error string on failure / when
+    writes are disabled.
+    """
+
+    if not WRITES_ENABLED:
+        return WRITES_DISABLED_MESSAGE
+
+    try:
+        result = await _write_request(
+            "PUT",
+            f"/users/self/course_nicknames/{course_id}",
+            {"nickname": nickname},
+        )
+    except CanvasError as exc:
+        return str(exc)
+
+    return {
+        "status": "set",
+        "course_id": course_id,
+        "nickname": result.get("nickname", nickname),
+    }
+
+
+@mcp.tool()
+async def mark_module_item_not_done(
+    course_id: str, module_id: str, item_id: str
+) -> Union[dict[str, Any], str]:
+    """Mark a module item as NOT done (undo a completion). (Write operation.)
+
+    Args:
+        course_id: The Canvas course id.
+        module_id: The module id (from ``get_modules``).
+        item_id: The module item id (from ``get_modules``).
+
+    Requires CANVAS_ENABLE_WRITES=true. The inverse of ``mark_module_item_done``.
+    Returns a confirmation, or an error string on failure / when writes are
+    disabled.
+    """
+
+    if not WRITES_ENABLED:
+        return WRITES_DISABLED_MESSAGE
+
+    try:
+        await _write_request(
+            "DELETE",
+            f"/courses/{course_id}/modules/{module_id}/items/{item_id}/done",
+        )
+    except CanvasError as exc:
+        return str(exc)
+
+    return {
+        "status": "marked_not_done",
+        "module_id": module_id,
+        "item_id": item_id,
     }
 
 

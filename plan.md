@@ -45,6 +45,11 @@ Claude, published to a public GitHub repo.
 | `get_files` | `GET /courses/{id}/files` |
 | `get_assignment_groups` | `GET /courses/{id}/assignment_groups?include[]=assignments` |
 | `get_course_roster` | `GET /courses/{id}/users?include[]=enrollments` |
+| `get_quiz_submissions` | `GET /courses/{id}/quizzes/{quiz_id}/submissions` (own attempts/scores) |
+| `get_groups` | `GET /courses/{id}/groups` |
+| `get_conversations` | `GET /conversations` |
+| `get_conversation` | `GET /conversations/{id}` |
+| `download_file` | `GET /files/{id}` then GET the file URL → write to local disk (not gated) |
 
 ### Write tools (gated behind `CANVAS_ENABLE_WRITES`, default off)
 
@@ -60,6 +65,16 @@ Claude, published to a public GitHub repo.
 | `mark_module_item_done` | `PUT /courses/{id}/modules/{module_id}/items/{item_id}/done` |
 | `create_calendar_event` | `POST /calendar_events` (context_code `user_{self}`) |
 | `send_message` | `POST /conversations` (recipient ids from `get_course_roster`) |
+| `reply_to_conversation` | `POST /conversations/{id}/add_message` |
+| `create_planner_note` | `POST /planner_notes` |
+| `set_course_nickname` | `PUT /users/self/course_nicknames/{id}` |
+| `mark_module_item_not_done` | `DELETE /courses/{id}/modules/{mid}/items/{iid}/done` |
+
+**Deliberately excluded — auto quiz-taking.** Tools that start a graded quiz
+attempt, fetch its questions for answering, and submit answers are *not*
+implemented: having the AI answer and submit a graded quiz is academic
+dishonesty. `get_quiz_submissions` (the student's own past attempts/scores) is
+the only quiz write/read kept.
 
 Safety design:
 - `CANVAS_ENABLE_WRITES` env var (default `false`). Each write tool checks it for

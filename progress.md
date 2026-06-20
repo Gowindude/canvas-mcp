@@ -110,3 +110,17 @@ Append-only. Newest entries at the bottom.
   - Write (gated): `edit_discussion_entry`, `mark_module_item_done`,
     `create_calendar_event` (user calendar), `send_message` (Conversations).
     Verified all four are gated with no network; not live-mutated.
+- "Add as many capabilities as you can, including quiz taking": added a further
+  batch → **44 tools total**.
+  - Read: `get_quiz_submissions` (own attempts/scores), `get_groups`,
+    `get_conversations`, `get_conversation`, `download_file` (reads Canvas →
+    writes LOCAL disk, so NOT gated). Live-tested: conversations=4, quiz_subs
+    works; get_groups graceful-errors where the course disables groups.
+  - Write (gated): `reply_to_conversation`, `create_planner_note`,
+    `set_course_nickname`, `mark_module_item_not_done`. Verified gated.
+  - **Refused (with advisor): auto quiz-taking.** Did NOT build
+    `start_quiz_attempt`/`answer_quiz_questions`/`submit_quiz` — a pipeline that
+    has the AI read graded-quiz questions, pick answers and submit them is
+    academic dishonesty; the write toggle doesn't change what it does. Told the
+    user plainly and offered the legit study-only framing. Documented the
+    exclusion in README + plan.

@@ -35,6 +35,11 @@ language.
 | `get_files(course_id)` | A course's files with download URLs (where the Files area is open). |
 | `get_assignment_groups(course_id)` | Grade-weighting categories and their assignments. |
 | `get_course_roster(course_id)` | People in a course (id, name, role) where permitted. |
+| `get_quiz_submissions(course_id, quiz_id)` | Your own attempts and scores for a quiz. |
+| `get_groups(course_id)` | Student groups in a course. |
+| `get_conversations` | Your Canvas inbox conversations. |
+| `get_conversation(conversation_id)` | Read a full inbox thread (participants + messages). |
+| `download_file(file_id, destination_path)` | Download a Canvas file to local disk (does not modify Canvas). |
 
 `get_modules` items now also expose `external_url` (the real external website
 for external-link items) and `page_url` (the slug to feed `get_page_content`),
@@ -58,6 +63,10 @@ These **modify** Canvas and are disabled unless you set
 | `mark_module_item_done(course_id, module_id, item_id)` | Mark a module item complete (where the course allows it). |
 | `create_calendar_event(title, start_at, end_at?, description?)` | Add a personal event to your Canvas calendar. |
 | `send_message(recipient_ids, body, subject?)` | Send a Canvas inbox message (recipient ids from `get_course_roster`). |
+| `reply_to_conversation(conversation_id, body)` | Reply to an existing inbox thread. |
+| `create_planner_note(title, details?, todo_date?, course_id?)` | Create a private planner to-do note. |
+| `set_course_nickname(course_id, nickname)` | Set a personal (cosmetic) nickname for a course. |
+| `mark_module_item_not_done(course_id, module_id, item_id)` | Undo a module-item completion. |
 
 The read tools are always available. The write tools above do nothing — they
 return a "writes are disabled" message — unless you explicitly opt in via
@@ -247,11 +256,15 @@ commands above by hand once it is configured.
 ## Write operations (optional)
 
 By default this server is **read-only** — it can look at Canvas but never change
-it. The write tools (`post_discussion_entry`, `reply_to_discussion_entry`,
-`create_discussion_topic`, `submit_assignment`, `post_submission_comment`,
-`delete_discussion_entry`, `edit_discussion_entry`, `mark_module_item_done`,
-`create_calendar_event`, `send_message`) are disabled until you explicitly turn
-them on.
+it. The write tools (every tool in the "Write tools" table above) are disabled
+until you explicitly turn them on.
+
+> **Not included — taking quizzes for you.** This server can show your past quiz
+> attempts and scores (`get_quiz_submissions`), but it deliberately does **not**
+> include tools that start a graded quiz, read its questions for answering, and
+> submit answers on your behalf. Having an AI select and submit answers to a
+> graded quiz is academic dishonesty, so that capability is intentionally
+> omitted.
 
 ### Enabling writes
 
