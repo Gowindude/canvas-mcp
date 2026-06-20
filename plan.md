@@ -37,6 +37,14 @@ Claude, published to a public GitHub repo.
 | `get_rubric` | `GET /courses/{id}/rubrics/{rubric_id}` |
 | `get_pages` | `GET /courses/{id}/pages` |
 | `get_page_content` | `GET /courses/{id}/pages/{page_url}` |
+| `get_todo` | `GET /users/self/todo` |
+| `get_missing_submissions` | `GET /users/self/missing_submissions` |
+| `get_planner` | `GET /planner/items?start_date&end_date` |
+| `get_all_grades` | `GET /courses?enrollment_state=active&include[]=total_scores` (reads `computed_current_*`) |
+| `get_quizzes` | `GET /courses/{id}/quizzes` |
+| `get_files` | `GET /courses/{id}/files` |
+| `get_assignment_groups` | `GET /courses/{id}/assignment_groups?include[]=assignments` |
+| `get_course_roster` | `GET /courses/{id}/users?include[]=enrollments` |
 
 ### Write tools (gated behind `CANVAS_ENABLE_WRITES`, default off)
 
@@ -48,6 +56,10 @@ Claude, published to a public GitHub repo.
 | `submit_assignment` | `POST /courses/{id}/assignments/{aid}/submissions` (+ 3-step inst-fs upload for `online_upload`) |
 | `post_submission_comment` | `PUT /courses/{id}/assignments/{aid}/submissions/self` |
 | `delete_discussion_entry` | `DELETE /courses/{id}/discussion_topics/{topic_id}/entries/{entry_id}` |
+| `edit_discussion_entry` | `PUT /courses/{id}/discussion_topics/{topic_id}/entries/{entry_id}` |
+| `mark_module_item_done` | `PUT /courses/{id}/modules/{module_id}/items/{item_id}/done` |
+| `create_calendar_event` | `POST /calendar_events` (context_code `user_{self}`) |
+| `send_message` | `POST /conversations` (recipient ids from `get_course_roster`) |
 
 Safety design:
 - `CANVAS_ENABLE_WRITES` env var (default `false`). Each write tool checks it for

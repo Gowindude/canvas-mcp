@@ -27,6 +27,14 @@ language.
 | `get_rubric(course_id, rubric_id)` | A rubric's grading criteria and ratings. |
 | `get_pages(course_id)` | List a course's wiki/content pages (title + slug + link). |
 | `get_page_content(course_id, page_url)` | Read a Canvas page's full text (login-gated pages fetched via your token). |
+| `get_todo` | Your Canvas to-do items across all courses. |
+| `get_missing_submissions` | Past-due assignments you haven't submitted, across all courses. |
+| `get_planner(days_ahead=14)` | Unified Planner feed (assignments, quizzes, events) across all courses. |
+| `get_all_grades` | Your current grade/score in every active course (dashboard). |
+| `get_quizzes(course_id)` | A course's quizzes (due date, points, time limit, attempts). |
+| `get_files(course_id)` | A course's files with download URLs (where the Files area is open). |
+| `get_assignment_groups(course_id)` | Grade-weighting categories and their assignments. |
+| `get_course_roster(course_id)` | People in a course (id, name, role) where permitted. |
 
 `get_modules` items now also expose `external_url` (the real external website
 for external-link items) and `page_url` (the slug to feed `get_page_content`),
@@ -46,6 +54,10 @@ These **modify** Canvas and are disabled unless you set
 | `submit_assignment(course_id, assignment_id, submission_type, text?, url?, file_path?)` | Submit an assignment (`online_text_entry`, `online_url`, or `online_upload`). |
 | `post_submission_comment(course_id, assignment_id, comment)` | Comment on your own submission. |
 | `delete_discussion_entry(course_id, topic_id, entry_id)` | Delete one of your own discussion posts/replies (irreversible). |
+| `edit_discussion_entry(course_id, topic_id, entry_id, message)` | Edit one of your own discussion posts/replies. |
+| `mark_module_item_done(course_id, module_id, item_id)` | Mark a module item complete (where the course allows it). |
+| `create_calendar_event(title, start_at, end_at?, description?)` | Add a personal event to your Canvas calendar. |
+| `send_message(recipient_ids, body, subject?)` | Send a Canvas inbox message (recipient ids from `get_course_roster`). |
 
 The read tools are always available. The write tools above do nothing — they
 return a "writes are disabled" message — unless you explicitly opt in via
@@ -237,7 +249,9 @@ commands above by hand once it is configured.
 By default this server is **read-only** — it can look at Canvas but never change
 it. The write tools (`post_discussion_entry`, `reply_to_discussion_entry`,
 `create_discussion_topic`, `submit_assignment`, `post_submission_comment`,
-`delete_discussion_entry`) are disabled until you explicitly turn them on.
+`delete_discussion_entry`, `edit_discussion_entry`, `mark_module_item_done`,
+`create_calendar_event`, `send_message`) are disabled until you explicitly turn
+them on.
 
 ### Enabling writes
 

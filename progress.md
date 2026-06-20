@@ -98,3 +98,15 @@ Append-only. Newest entries at the bottom.
 - Added `delete_discussion_entry` (write, gated) so a post→delete round-trip can
   safely verify writes end-to-end. **23 tools total.** Verified: compiles,
   registers, gate blocks with no network.
+- Confirmed the write safety toggle is fully documented in README (dedicated
+  "Write operations (optional)" section) — no change needed there.
+- Added the full suggested batch — **8 read + 4 write tools → 35 total**:
+  - Read: `get_todo`, `get_missing_submissions`, `get_planner` (cross-course),
+    `get_all_grades`, `get_quizzes`, `get_files`, `get_assignment_groups`,
+    `get_course_roster`. Live-tested: todo=2, planner=23, all_grades across 5
+    courses (LITR 75.86, SOCI 100). `get_files`/`get_course_roster` returned
+    graceful errors on course 42936 (Files/roster restricted there) — correct
+    behavior, works where permitted.
+  - Write (gated): `edit_discussion_entry`, `mark_module_item_done`,
+    `create_calendar_event` (user calendar), `send_message` (Conversations).
+    Verified all four are gated with no network; not live-mutated.

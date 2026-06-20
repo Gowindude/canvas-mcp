@@ -986,6 +986,276 @@ async def get_page_content(
     }
 
 
+@mcp.tool()
+async def get_todo() -> Union[list[dict[str, Any]], str]:
+    """List the user's Canvas to-do items across all courses.
+
+    These are the assignments/quizzes Canvas thinks need attention (e.g.
+    upcoming things to submit). Returns each item's type, title, course id, due
+    date, points and link. Returns an error string on failure.
+    """
+
+    try:
+        items = await _paginate("/users/self/todo")
+    except CanvasError as exc:
+        return str(exc)
+
+    result: list[dict[str, Any]] = []
+    for item in items:
+        assignment = item.get("assignment") or {}
+        result.append(
+            {
+                "type": item.get("type"),
+                "title": assignment.get("name") or item.get("type"),
+                "course_id": item.get("course_id") or assignment.get("course_id"),
+                "due_date": assignment.get("due_at"),
+                "points_possible": assignment.get("points_possible"),
+                "html_url": item.get("html_url") or assignment.get("html_url"),
+            }
+        )
+    return result
+
+
+@mcp.tool()
+async def get_missing_submissions() -> Union[list[dict[str, Any]], str]:
+    """List past-due assignments the user has not submitted, across all courses.
+
+    Returns each assignment's id, name, course id, due date, points and link.
+    Returns an error string on failure.
+    """
+
+    try:
+        assignments = await _paginate("/users/self/missing_submissions")
+    except CanvasError as exc:
+        return str(exc)
+
+    return [
+        {
+            "id": a.get("id"),
+            "name": a.get("name"),
+            "course_id": a.get("course_id"),
+            "due_date": a.get("due_at"),
+            "points_possible": a.get("points_possible"),
+            "html_url": a.get("html_url"),
+        }
+        for a in assignments
+    ]
+
+
+@mcp.tool()
+async def get_planner(days_ahead: int = 14) -> Union[list[dict[str, Any]], str]:
+    """List unified Canvas Planner items across all courses for the next N days.
+
+    Args:
+        days_ahead: How many days into the future to include (default 14).
+
+    The Planner combines assignments, quizzes, discussions, calendar events and
+    to-dos. Returns each item's type, title, course name, date, points and link.
+    Returns an error string on failure.
+    """
+
+    now = datetime.now(timezone.utc)
+    end = now + timedelta(days=days_ahead)
+
+    try:
+        items = await _paginate(
+            "/planner/items",
+            {"start_date": now.isoformat(), "end_date": end.isoformat()},
+        )
+    except CanvasError as exc:
+        return str(exc)
+
+    result: list[dict[str, Any]] = []
+    for item in items:
+        plannable = item.get("plannable") or {}
+        result.append(
+            {
+                "type": item.get("plannable_type"),
+                "title": plannable.get("title") or plannable.get("name"),
+                "course_name": item.get("context_name"),
+                "date": item.get("plannable_date")
+                or plannable.get("due_at")
+                or plannable.get("todo_date"),
+                "points_possible": plannable.get("points_possible"),
+                "html_url": item.get("html_url"),
+            }
+        )
+    return result
+
+
+@mcp.tool()
+async def get_all_grades() -> Union[list[dict[str, Any]], str]:
+    """Return the user's current grade and score in every active course.
+
+    A dashboard view across all courses (vs. per-course ``get_grades``). Returns
+    each course's id, name, current score and current grade. Returns an error
+    string on failure.
+    """
+
+    try:
+        courses = await _paginate(
+            "/courses",
+            {"enrollment_state": "active", "include[]": "total_scores"},
+        )
+    except CanvasError as exc:
+        return str(exc)
+
+    result: list[dict[str, Any]] = []
+    for course in courses:
+        if not course.get("id"):
+            continue
+        enrollments = course.get("enrollments") or []
+        enrollment = enrollments[0] if enrollments else {}
+        result.append(
+            {
+                "course_id": course.get("id"),
+                "name": course.get("name"),
+                "current_score": enrollment.get("computed_current_score"),
+                "current_grade": enrollment.get("computed_current_grade"),
+            }
+        )
+    return result
+
+
+@mcp.tool()
+async def get_quizzes(course_id: str) -> Union[list[dict[str, Any]], str]:
+    """List the quizzes in a course.
+
+    Args:
+        course_id: The Canvas course id.
+
+    Returns each quiz's id, title, due date, points, question count, time limit
+    (minutes), allowed attempts, type and link. Returns an error string on
+    failure.
+    """
+
+    try:
+        quizzes = await _paginate(f"/courses/{course_id}/quizzes")
+    except CanvasError as exc:
+        return str(exc)
+
+    return [
+        {
+            "id": q.get("id"),
+            "title": q.get("title"),
+            "due_date": q.get("due_at"),
+            "points_possible": q.get("points_possible"),
+            "question_count": q.get("question_count"),
+            "time_limit": q.get("time_limit"),
+            "allowed_attempts": q.get("allowed_attempts"),
+            "quiz_type": q.get("quiz_type"),
+            "html_url": q.get("html_url"),
+        }
+        for q in quizzes
+    ]
+
+
+@mcp.tool()
+async def get_files(course_id: str) -> Union[list[dict[str, Any]], str]:
+    """List the files available in a course.
+
+    Args:
+        course_id: The Canvas course id.
+
+    Returns each file's id, name, content type, size (bytes), a download URL and
+    created/updated dates. Returns an error string on failure (e.g. if the
+    course's Files area is restricted).
+    """
+
+    try:
+        files = await _paginate(f"/courses/{course_id}/files")
+    except CanvasError as exc:
+        return str(exc)
+
+    return [
+        {
+            "id": f.get("id"),
+            "name": f.get("display_name") or f.get("filename"),
+            "content_type": f.get("content-type") or f.get("content_type"),
+            "size": f.get("size"),
+            "url": f.get("url"),
+            "created_at": f.get("created_at"),
+            "updated_at": f.get("updated_at"),
+        }
+        for f in files
+    ]
+
+
+@mcp.tool()
+async def get_assignment_groups(
+    course_id: str,
+) -> Union[list[dict[str, Any]], str]:
+    """List a course's assignment groups and their grade weights.
+
+    Args:
+        course_id: The Canvas course id.
+
+    Shows how the final grade is weighted across categories (e.g. Homework 20%,
+    Exams 50%). Returns each group's id, name, weight and its assignments.
+    Returns an error string on failure.
+    """
+
+    try:
+        groups = await _paginate(
+            f"/courses/{course_id}/assignment_groups",
+            {"include[]": "assignments"},
+        )
+    except CanvasError as exc:
+        return str(exc)
+
+    result: list[dict[str, Any]] = []
+    for group in groups:
+        assignments = [
+            {
+                "id": a.get("id"),
+                "name": a.get("name"),
+                "points_possible": a.get("points_possible"),
+            }
+            for a in (group.get("assignments") or [])
+        ]
+        result.append(
+            {
+                "id": group.get("id"),
+                "name": group.get("name"),
+                "group_weight": group.get("group_weight"),
+                "assignments": assignments,
+            }
+        )
+    return result
+
+
+@mcp.tool()
+async def get_course_roster(course_id: str) -> Union[list[dict[str, Any]], str]:
+    """List the people enrolled in a course (classmates and instructors).
+
+    Args:
+        course_id: The Canvas course id.
+
+    Returns each person's id, name and role. Returns an error string on failure
+    (some courses restrict the roster to staff).
+    """
+
+    try:
+        users = await _paginate(
+            f"/courses/{course_id}/users", {"include[]": "enrollments"}
+        )
+    except CanvasError as exc:
+        return str(exc)
+
+    result: list[dict[str, Any]] = []
+    for user in users:
+        enrollments = user.get("enrollments") or []
+        role = enrollments[0].get("type") if enrollments else None
+        result.append(
+            {
+                "id": user.get("id"),
+                "name": user.get("name"),
+                "role": role,
+            }
+        )
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Write tools (gated behind CANVAS_ENABLE_WRITES — read-only by default)
 # ---------------------------------------------------------------------------
@@ -1246,6 +1516,172 @@ async def delete_discussion_entry(
         "status": "deleted",
         "id": entry_id,
         "deleted": result.get("deleted", True),
+    }
+
+
+@mcp.tool()
+async def edit_discussion_entry(
+    course_id: str, topic_id: str, entry_id: str, message: str
+) -> Union[dict[str, Any], str]:
+    """Edit the text of one of your own discussion posts/replies. (Write.)
+
+    Args:
+        course_id: The Canvas course id.
+        topic_id: The discussion topic id.
+        entry_id: The id of the entry to edit (from
+            ``get_discussion_entries``). You can only edit your own posts.
+        message: The new message body (replaces the old one).
+
+    Requires CANVAS_ENABLE_WRITES=true. Returns the updated entry, or an error
+    string on failure / when writes are disabled.
+    """
+
+    if not WRITES_ENABLED:
+        return WRITES_DISABLED_MESSAGE
+
+    try:
+        result = await _write_request(
+            "PUT",
+            f"/courses/{course_id}/discussion_topics/{topic_id}"
+            f"/entries/{entry_id}",
+            {"message": message},
+        )
+    except CanvasError as exc:
+        return str(exc)
+
+    return {
+        "status": "edited",
+        "id": result.get("id") or entry_id,
+        "updated_at": result.get("updated_at"),
+        "message": strip_html(result.get("message")),
+    }
+
+
+@mcp.tool()
+async def mark_module_item_done(
+    course_id: str, module_id: str, item_id: str
+) -> Union[dict[str, Any], str]:
+    """Mark a module item as done (for modules with completion tracking). (Write.)
+
+    Args:
+        course_id: The Canvas course id.
+        module_id: The module id (from ``get_modules``).
+        item_id: The module item id (from ``get_modules``).
+
+    Requires CANVAS_ENABLE_WRITES=true. Only works on items the course lets you
+    manually mark complete. Returns a confirmation, or an error string on
+    failure / when writes are disabled.
+    """
+
+    if not WRITES_ENABLED:
+        return WRITES_DISABLED_MESSAGE
+
+    try:
+        await _write_request(
+            "PUT",
+            f"/courses/{course_id}/modules/{module_id}/items/{item_id}/done",
+        )
+    except CanvasError as exc:
+        return str(exc)
+
+    return {
+        "status": "marked_done",
+        "module_id": module_id,
+        "item_id": item_id,
+    }
+
+
+@mcp.tool()
+async def create_calendar_event(
+    title: str,
+    start_at: str,
+    end_at: Optional[str] = None,
+    description: Optional[str] = None,
+) -> Union[dict[str, Any], str]:
+    """Create a personal event on the user's Canvas calendar. (Write operation.)
+
+    Args:
+        title: The event title.
+        start_at: Start datetime in ISO 8601 (e.g. ``2026-06-25T14:00:00Z``).
+        end_at: Optional end datetime in ISO 8601.
+        description: Optional event description.
+
+    Requires CANVAS_ENABLE_WRITES=true. Creates the event on your own user
+    calendar. Returns the created event, or an error string on failure / when
+    writes are disabled.
+    """
+
+    if not WRITES_ENABLED:
+        return WRITES_DISABLED_MESSAGE
+
+    try:
+        me = await _get_one("/users/self")
+        data: dict[str, Any] = {
+            "calendar_event[context_code]": f"user_{me.get('id')}",
+            "calendar_event[title]": title,
+            "calendar_event[start_at]": start_at,
+        }
+        if end_at:
+            data["calendar_event[end_at]"] = end_at
+        if description:
+            data["calendar_event[description]"] = description
+        result = await _write_request("POST", "/calendar_events", data)
+    except CanvasError as exc:
+        return str(exc)
+
+    return {
+        "status": "created",
+        "id": result.get("id"),
+        "title": result.get("title"),
+        "start_at": result.get("start_at"),
+        "end_at": result.get("end_at"),
+        "html_url": result.get("html_url"),
+    }
+
+
+@mcp.tool()
+async def send_message(
+    recipient_ids: list[str], body: str, subject: Optional[str] = None
+) -> Union[dict[str, Any], str]:
+    """Send a message via the Canvas inbox (Conversations). (Write operation.)
+
+    Args:
+        recipient_ids: Canvas user ids to send to (get them from
+            ``get_course_roster``).
+        body: The message body.
+        subject: Optional subject line.
+
+    Requires CANVAS_ENABLE_WRITES=true. This sends a real message to real
+    people. Returns a confirmation, or an error string on failure / when writes
+    are disabled.
+    """
+
+    if not WRITES_ENABLED:
+        return WRITES_DISABLED_MESSAGE
+
+    if not recipient_ids:
+        return "Error: at least one recipient id is required."
+
+    data: dict[str, Any] = {
+        "recipients[]": [str(r) for r in recipient_ids],
+        "body": body,
+    }
+    if subject:
+        data["subject"] = subject
+
+    try:
+        result = await _write_request("POST", "/conversations", data)
+    except CanvasError as exc:
+        return str(exc)
+
+    # POST /conversations returns a list of the created conversation(s).
+    conversation = result[0] if isinstance(result, list) and result else result
+    conversation = conversation if isinstance(conversation, dict) else {}
+    return {
+        "status": "sent",
+        "conversation_id": conversation.get("id"),
+        "recipient_ids": [str(r) for r in recipient_ids],
+        "subject": subject,
     }
 
 
