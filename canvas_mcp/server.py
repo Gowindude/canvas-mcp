@@ -202,6 +202,34 @@ async def _get_one(path: str, params: Optional[dict[str, Any]] = None) -> dict[s
         raise CanvasError(_request_error_message(exc)) from exc
 
 
+async def _get_file_bytes(url: str, timeout: httpx.Timeout) -> bytes:
+    """Download bytes from a (pre-signed) Canvas file URL, retrying flaky reads.
+
+    Canvas serves file content from a separate CDN (``*.canvas-user-content.com``)
+    that can intermittently refuse a connection, so we retry transient network
+    errors a few times with a short backoff. Real HTTP errors (e.g. 403/404) are
+    deterministic and raised immediately. Raises :class:`CanvasError` if every
+    attempt fails.
+    """
+
+    last_exc: Optional[httpx.RequestError] = None
+    for delay in (0.0, 0.5, 1.5, 3.0):  # 4 attempts, growing backoff
+        if delay:
+            await asyncio.sleep(delay)
+        try:
+            async with httpx.AsyncClient(
+                headers=HEADERS, timeout=timeout, follow_redirects=True
+            ) as client:
+                response = await client.get(url)
+                response.raise_for_status()
+                return response.content
+        except httpx.HTTPStatusError as exc:
+            raise CanvasError(_http_error_message(exc)) from exc
+        except httpx.RequestError as exc:
+            last_exc = exc
+    raise CanvasError(_request_error_message(last_exc))
+
+
 async def _write_request(
     method: str, path: str, data: Optional[dict[str, Any]] = None
 ) -> dict[str, Any]:
@@ -1733,16 +1761,9 @@ async def download_file(
         return "Error: Canvas did not return a download URL for this file."
 
     try:
-        async with httpx.AsyncClient(
-            headers=HEADERS, timeout=UPLOAD_TIMEOUT, follow_redirects=True
-        ) as client:
-            response = await client.get(url)
-            response.raise_for_status()
-            content = response.content
-    except httpx.HTTPStatusError as exc:
-        return _http_error_message(exc)
-    except httpx.RequestError as exc:
-        return _request_error_message(exc)
+        content = await _get_file_bytes(url, UPLOAD_TIMEOUT)
+    except CanvasError as exc:
+        return str(exc)
 
     try:
         dest = Path(destination_path).expanduser()
@@ -1803,16 +1824,9 @@ async def get_file_image(file_id: str) -> Union[Image, str]:
         return "Error: Canvas did not return a download URL for this file."
 
     try:
-        async with httpx.AsyncClient(
-            headers=HEADERS, timeout=REQUEST_TIMEOUT, follow_redirects=True
-        ) as client:
-            response = await client.get(url)
-            response.raise_for_status()
-            data = response.content
-    except httpx.HTTPStatusError as exc:
-        return _http_error_message(exc)
-    except httpx.RequestError as exc:
-        return _request_error_message(exc)
+        data = await _get_file_bytes(url, REQUEST_TIMEOUT)
+    except CanvasError as exc:
+        return str(exc)
 
     if len(data) > _MAX_IMAGE_BYTES:
         return (
@@ -2047,16 +2061,9 @@ async def read_document(
         return "Error: Canvas did not return a download URL for this file."
 
     try:
-        async with httpx.AsyncClient(
-            headers=HEADERS, timeout=UPLOAD_TIMEOUT, follow_redirects=True
-        ) as client:
-            response = await client.get(url)
-            response.raise_for_status()
-            data = response.content
-    except httpx.HTTPStatusError as exc:
-        return _http_error_message(exc)
-    except httpx.RequestError as exc:
-        return _request_error_message(exc)
+        data = await _get_file_bytes(url, UPLOAD_TIMEOUT)
+    except CanvasError as exc:
+        return str(exc)
 
     is_pdf = content_type == "application/pdf" or extension == "pdf"
     is_docx = (

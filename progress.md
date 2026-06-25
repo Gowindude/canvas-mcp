@@ -245,3 +245,16 @@ Append-only. Newest entries at the bottom.
   Reproduced the 403 with the item id, then verified the full chain
   get_modules → `content_id` → `read_document` reads the 23-page PDF.
   (`search_course_content` returns module id+name only, no items — no gap there.)
+- **File-download resilience — `_get_file_bytes` retry helper.** Canvas serves
+  file bytes from a separate CDN (`*.canvas-user-content.com`) that intermittently
+  refuses connections, so a single fetch can fail (`ConnectError` → "Could not
+  reach Canvas…"). Added a shared helper that retries transient `RequestError`s
+  (4 attempts, backoff 0/0.5/1.5/3.0s) while raising real HTTP errors (403/404)
+  immediately, and routed all three file-byte tools (`get_file_image`,
+  `read_document`, `download_file`) through it. Measured: `read_document` went
+  from ~1–2/6 to 5/5 in the throttled sandbox. NOTE on architecture: the MCP
+  server is a **local process**, so its outbound traffic uses the user's normal
+  network (no Anthropic allowlist to edit) — Claude-in-Desktop's "add the CDN to
+  the allowed domains" suggestion describes a sandboxed tool env, not this local
+  server; the real fix is retry resilience (here) or, if a user's own
+  network/VPN/firewall blocks `*.canvas-user-content.com`, allowing it there.
