@@ -213,3 +213,25 @@ Append-only. Newest entries at the bottom.
     *topic message* (mirrors the assignment description), which `get_discussion_media`
     reads. Assignment-description-only media (non-discussion) isn't harvested yet
     — add `get_assignment_media` if needed.
+- **`get_assignment_media` + `read_document` (51 tools)** + pinned deps
+  `pypdf==6.14.2`, `python-docx==1.2.0`.
+  - `get_assignment_media(course_id, assignment_id)`: `_harvest_media` over an
+    assignment description (closes the non-discussion media gap noted above).
+    Live-verified on SOCI "Module 3 Discussion board" assignment (1 image).
+  - `read_document(file_id, pages=None)`: download a Canvas file → extract text.
+    PDF via `pypdf`, Word `.docx` via `python-docx`, plain text decoded; parsing
+    runs in `asyncio.to_thread` (sync/CPU-bound). 25 MB download cap, 100k-char
+    output cap with `truncated` flag, 1-indexed `pages` range for PDFs.
+    Live-verified: pulled real text from the 23-page `socialclasspoverty-1.pdf`
+    (pages 1–2). Offline unit tests cover the docx path and the page-range parser
+    (`"1-5"`, single page, None=all, clamping).
+  - **Debugging note — Canvas file CDN is flaky from the local command sandbox.**
+    Downloads to `*.canvas-user-content.com` intermittently `ConnectError` even
+    with the sandbox disabled (characterized: ~1–2/6 success, **independent of
+    the auth header** — an initial 2-sample split falsely implicated the header;
+    a 6×2 trial disproved it). Briefly removed `HEADERS` from the
+    `get_file_image`/`read_document` byte-fetch, then **reverted** once the header
+    was ruled out, keeping all three file tools (`download_file`, `get_file_image`,
+    `read_document`) consistent on the original `headers=HEADERS` pattern. The
+    flakiness is environmental (sandbox network); the path works in Claude Desktop
+    (image rendered, transcript + PDF text all succeeded on retry).

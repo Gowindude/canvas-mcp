@@ -53,6 +53,8 @@ Claude, published to a public GitHub repo.
 | `get_file_image` | `GET /files/{id}` → follow redirect to CDN → return bytes as a FastMCP `Image` (visual content Claude can see). Non-images / >8 MB rejected. |
 | `get_page_media` | `GET /courses/{id}/pages/{url}` → `_harvest_media(body)` (parse raw HTML *before* stripping) → embedded images (with `file_id`) + YouTube embeds (with `video_id`) |
 | `get_discussion_media` | `GET .../discussion_topics/{id}` + `/view` → harvest media from prompt + every post, tagged with author/location |
+| `get_assignment_media` | `GET /courses/{id}/assignments/{aid}` → `_harvest_media(description)` |
+| `read_document` | `GET /files/{id}` → download bytes → extract text (PDF via `pypdf`, .docx via `python-docx`, plain text decoded) in a worker thread; optional `pages` range for PDFs; output capped |
 | `get_youtube_transcript` | `youtube-transcript-api` `YouTubeTranscriptApi().fetch(video_id, languages)` run via `asyncio.to_thread` (library is sync/`requests`) → joined transcript + timestamped segments |
 | `get_actionable_items` | per course: `GET /courses/{id}/assignments?include[]=submission` (submittable + unsubmitted, incl. undated) **+** `GET /courses/{id}/modules?include[]=items&include[]=content_details` (unmet completion requirements); deduped into one key namespace. Optional `course_id`; cross-course by default. Surfaces work the calendar/planner miss because it isn't dated. |
 
@@ -107,7 +109,7 @@ Safety design:
 
 ## Dependencies (pinned)
 `fastmcp==2.14.7`, `httpx==0.28.1`, `python-dotenv==1.2.2`, `beautifulsoup4==4.13.4`,
-`youtube-transcript-api==1.2.4`.
+`youtube-transcript-api==1.2.4`, `pypdf==6.14.2`, `python-docx==1.2.0`.
 
 > Note: `youtube-transcript-api` is sync and pulls in `requests` transitively.
 > The repo's "httpx async only — never requests" rule governs *our* HTTP code

@@ -13,6 +13,7 @@ Run with either:
 from __future__ import annotations
 
 import asyncio
+import io
 import mimetypes
 import os
 import re
@@ -435,6 +436,50 @@ def _fetch_youtube_transcript_sync(
             for snippet in fetched
         ],
     }
+
+
+def _parse_page_range(spec: Optional[str], total: int) -> list[int]:
+    """Turn a 1-indexed inclusive range like ``"1-5"`` or ``"3"`` into 0-based
+    page indices, clamped to ``[0, total)``. ``None`` means all pages."""
+
+    if not spec:
+        return list(range(total))
+    spec = spec.strip()
+    if "-" in spec:
+        start_str, _, end_str = spec.partition("-")
+        start = int(start_str) if start_str.strip() else 1
+        end = int(end_str) if end_str.strip() else total
+    else:
+        start = end = int(spec)
+    start = max(1, start)
+    end = min(total, end)
+    return [i - 1 for i in range(start, end + 1)]
+
+
+def _extract_pdf_text(data: bytes, page_range: Optional[str]) -> dict[str, Any]:
+    """Extract text from a PDF (blocking; call via ``asyncio.to_thread``)."""
+
+    from pypdf import PdfReader
+
+    reader = PdfReader(io.BytesIO(data))
+    total = len(reader.pages)
+    indices = _parse_page_range(page_range, total)
+    parts = [reader.pages[i].extract_text() or "" for i in indices]
+    return {
+        "text": "\n\n".join(parts).strip(),
+        "total_pages": total,
+        "pages_read": [i + 1 for i in indices],
+    }
+
+
+def _extract_docx_text(data: bytes) -> dict[str, Any]:
+    """Extract text from a .docx file (blocking; call via ``asyncio.to_thread``)."""
+
+    from docx import Document
+
+    document = Document(io.BytesIO(data))
+    paragraphs = [p.text for p in document.paragraphs if p.text and p.text.strip()]
+    return {"text": "\n".join(paragraphs).strip(), "total_pages": None, "pages_read": None}
 
 
 # ---------------------------------------------------------------------------
@@ -1876,6 +1921,38 @@ async def get_discussion_media(
 
 
 @mcp.tool()
+async def get_assignment_media(
+    course_id: str, assignment_id: str
+) -> Union[dict[str, Any], str]:
+    """List images and YouTube videos embedded in an assignment description.
+
+    Args:
+        course_id: The Canvas course id.
+        assignment_id: The assignment id (from ``get_assignments``).
+
+    Assignment instructions are stored as HTML, so embedded media would be lost
+    by the usual text extraction. This recovers it: each image includes its
+    Canvas ``file_id`` (for ``get_file_image``) and each video its ``video_id``
+    (for ``get_youtube_transcript``). Returns an error string on failure.
+    """
+
+    try:
+        assignment = await _get_one(
+            f"/courses/{course_id}/assignments/{assignment_id}"
+        )
+    except CanvasError as exc:
+        return str(exc)
+
+    media = _harvest_media(assignment.get("description"))
+    return {
+        "assignment": assignment.get("name"),
+        "images": media["images"],
+        "youtube": media["youtube"],
+        "hint": _MEDIA_HINT,
+    }
+
+
+@mcp.tool()
 async def get_youtube_transcript(
     video: str, languages: Optional[list[str]] = None
 ) -> Union[dict[str, Any], str]:
@@ -1917,6 +1994,107 @@ async def get_youtube_transcript(
         "segment_count": len(snippets),
         "transcript": " ".join(s["text"] for s in snippets).strip(),
         "segments": snippets,
+    }
+
+
+# Limits so a giant file can't blow up the download or the context window.
+_MAX_DOCUMENT_BYTES = 25 * 1024 * 1024  # 25 MB download cap
+_MAX_DOCUMENT_CHARS = 100_000  # returned-text cap
+
+
+@mcp.tool()
+async def read_document(
+    file_id: str, pages: Optional[str] = None
+) -> Union[dict[str, Any], str]:
+    """Extract the text of a Canvas document (PDF, Word .docx, or plain text).
+
+    Args:
+        file_id: The Canvas file id (from ``get_files`` or a module item).
+        pages: For PDFs only, a 1-indexed inclusive page range like ``"1-5"`` or
+            ``"3"``. Omit to read the whole document.
+
+    Use this to read a textbook chapter, handout or syllabus PDF so you can
+    summarise or study it — unlike ``download_file`` (which only saves bytes to
+    disk), this returns the actual text. Long text is truncated to keep the
+    response manageable (``truncated: true`` flags this). Returns an error string
+    if the file is missing, too large, or an unsupported type.
+    """
+
+    try:
+        meta = await _get_one(f"/files/{file_id}")
+    except CanvasError as exc:
+        return str(exc)
+
+    name = meta.get("display_name") or meta.get("filename") or ""
+    content_type = (meta.get("content-type") or meta.get("content_type") or "").lower()
+    extension = name.lower().rsplit(".", 1)[-1] if "." in name else ""
+
+    size = meta.get("size")
+    if isinstance(size, int) and size > _MAX_DOCUMENT_BYTES:
+        return (
+            f"Error: '{name}' is {size} bytes, larger than the "
+            f"{_MAX_DOCUMENT_BYTES}-byte limit. Use download_file instead."
+        )
+
+    url = meta.get("url")
+    if not url:
+        return "Error: Canvas did not return a download URL for this file."
+
+    try:
+        async with httpx.AsyncClient(
+            headers=HEADERS, timeout=UPLOAD_TIMEOUT, follow_redirects=True
+        ) as client:
+            response = await client.get(url)
+            response.raise_for_status()
+            data = response.content
+    except httpx.HTTPStatusError as exc:
+        return _http_error_message(exc)
+    except httpx.RequestError as exc:
+        return _request_error_message(exc)
+
+    is_pdf = content_type == "application/pdf" or extension == "pdf"
+    is_docx = (
+        extension == "docx"
+        or content_type
+        == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
+    is_text = content_type.startswith("text/") or extension in {
+        "txt",
+        "md",
+        "markdown",
+        "csv",
+    }
+
+    try:
+        if is_pdf:
+            extracted = await asyncio.to_thread(_extract_pdf_text, data, pages)
+        elif is_docx:
+            extracted = await asyncio.to_thread(_extract_docx_text, data)
+        elif is_text:
+            extracted = {
+                "text": data.decode("utf-8", errors="replace").strip(),
+                "total_pages": None,
+                "pages_read": None,
+            }
+        else:
+            return (
+                f"Error: '{name}' has unsupported type '{content_type or extension}'. "
+                "Supported: PDF, Word (.docx), and plain text. Use download_file "
+                "for anything else, or get_file_image for images."
+            )
+    except Exception as exc:  # noqa: BLE001 - parsers raise varied errors
+        return f"Error: could not read '{name}'. {type(exc).__name__}: {exc}"
+
+    text = extracted["text"]
+    truncated = len(text) > _MAX_DOCUMENT_CHARS
+    return {
+        "file_id": file_id,
+        "name": name,
+        "content_type": content_type,
+        "total_pages": extracted["total_pages"],
+        "pages_read": extracted["pages_read"],
+        "truncated": truncated,
+        "text": text[:_MAX_DOCUMENT_CHARS],
     }
 
 
