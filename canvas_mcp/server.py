@@ -22,6 +22,7 @@ import httpx
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from fastmcp import FastMCP
+from fastmcp.utilities.types import Image
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -1612,6 +1613,70 @@ async def download_file(
         "path": str(dest),
         "bytes": len(content),
     }
+
+
+# Cap image bytes returned inline so a huge file can't blow up the context.
+_MAX_IMAGE_BYTES = 8 * 1024 * 1024  # 8 MB
+
+
+@mcp.tool()
+async def get_file_image(file_id: str) -> Union[Image, str]:
+    """Fetch a Canvas image file and return it so Claude can actually see it.
+
+    Args:
+        file_id: The Canvas file id of an image (from ``get_files`` or a module
+            item). Must point at an image file (jpeg/png/gif/webp/...).
+
+    Unlike ``download_file`` (which saves to local disk), this returns the image
+    inline as visual content Claude can look at and describe. Use it to read
+    diagrams, screenshots or photos embedded in a course. Returns an error
+    string if the file isn't an image, is too large, or can't be fetched.
+    """
+
+    try:
+        meta = await _get_one(f"/files/{file_id}")
+    except CanvasError as exc:
+        return str(exc)
+
+    content_type = (meta.get("content-type") or meta.get("content_type") or "").lower()
+    if not content_type.startswith("image/"):
+        return (
+            f"Error: file {file_id} is not an image (content-type: "
+            f"{content_type or 'unknown'}). Use download_file for non-image files."
+        )
+
+    size = meta.get("size")
+    if isinstance(size, int) and size > _MAX_IMAGE_BYTES:
+        return (
+            f"Error: image is {size} bytes, larger than the "
+            f"{_MAX_IMAGE_BYTES}-byte inline limit. Use download_file instead."
+        )
+
+    url = meta.get("url")
+    if not url:
+        return "Error: Canvas did not return a download URL for this file."
+
+    try:
+        async with httpx.AsyncClient(
+            headers=HEADERS, timeout=REQUEST_TIMEOUT, follow_redirects=True
+        ) as client:
+            response = await client.get(url)
+            response.raise_for_status()
+            data = response.content
+    except httpx.HTTPStatusError as exc:
+        return _http_error_message(exc)
+    except httpx.RequestError as exc:
+        return _request_error_message(exc)
+
+    if len(data) > _MAX_IMAGE_BYTES:
+        return (
+            f"Error: image is {len(data)} bytes, larger than the "
+            f"{_MAX_IMAGE_BYTES}-byte inline limit. Use download_file instead."
+        )
+
+    # e.g. "image/jpeg" -> "jpeg"; fall back to png if Canvas omits the subtype.
+    image_format = content_type.split("/")[-1] or "png"
+    return Image(data=data, format=image_format)
 
 
 # ---------------------------------------------------------------------------

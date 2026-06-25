@@ -159,3 +159,26 @@ Append-only. Newest entries at the bottom.
   to confirm Claude Desktop surfaces MCP prompts before building the real
   study/summarize workflows. Verified it registers (`get_prompts()` lists it).
   Next step pending user: restart Desktop and confirm the prompt appears/runs.
+- **Smoke test PASSED in Desktop** — `canvas_prompt_check` rendered and ran;
+  Claude confirmed the connection (Taran Govindu, id 94682). MCP prompts are a
+  viable delivery mechanism, so the study/summarize workflows will be built as
+  `@mcp.prompt()` (no Projects fallback needed).
+- **Image-return spike → `get_file_image`** (read; **46 tools**). Returns a
+  Canvas image inline as MCP visual content (FastMCP `Image`) so Claude can
+  actually *see* it, vs. `download_file` which only saves to disk. Guards:
+  rejects non-image content-types, caps inline size at 8 MB, graceful error
+  strings.
+  - Spike verified the full chain end-to-end against real Canvas: resolve
+    `/files/{id}` → presigned URL → **follow redirects to the canvas-user-content
+    CDN** → bytes → `Image(...).to_image_content()` = valid `image/jpeg` block.
+    Test target: `family.jpg` (file 12473098, embedded in SOCI 1100 "Module 3
+    Discussion board"). NOTE: the CDN host is blocked by the local command
+    sandbox (the Canvas API host is not) — had to disable the sandbox to fetch
+    bytes; Claude Desktop has no such sandbox so it works there.
+  - Also confirmed embedded-media targets exist for the next step: a YouTube
+    link (`youtube.com/watch?v=lYdNjrUs4NM`) lives in a SOCI assignment
+    description — feeds the planned `_harvest_media` (parse raw HTML *before*
+    `strip_html`) + `youtube-transcript-api` work.
+  - Pending user: restart Desktop, run `get_file_image` on file 12473098, and
+    confirm Claude can see/describe the image (the rendering half the spike
+    can't self-test).
