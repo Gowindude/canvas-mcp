@@ -2702,6 +2702,82 @@ def canvas_prompt_check() -> str:
     )
 
 
+@mcp.prompt()
+def summarize_reading(course: str, reading: str, pages: str = "") -> str:
+    """Summarize a course reading/chapter (PDF, Word doc, or Canvas page)."""
+
+    page_note = f" Focus only on pages {pages}." if pages.strip() else ""
+    pages_arg = f", pages=\"{pages}\"" if pages.strip() else ""
+    return f"""Help me study by summarizing a reading from my Canvas course. Use the Canvas tools to find and read it, then summarize.
+
+Target course: "{course}"
+Reading to summarize: "{reading}".{page_note}
+
+Steps:
+1. Call get_courses to find the course id that matches "{course}".
+2. Locate the reading with get_modules(course_id):
+   - File item (PDF/Word/slides) -> read it with read_document(content_id{pages_arg}). Use the item's content_id, NOT the module item id.
+   - Page item -> read it with get_page_content(course_id, page_url).
+   - If it isn't in the modules, try get_files(course_id) (may be restricted in some courses).
+3. Read the full text.
+4. Produce a markdown summary:
+   - **TL;DR** - 2-3 sentence overview.
+   - **Section summaries** - the main sections/arguments, each as a few bullets.
+   - **Key terms** - important terms with concise definitions.
+   - **Self-check questions** - 4-6 questions (with answers) to test myself.
+
+Stay faithful to the source and clearly flag anything you could not access."""
+
+
+@mcp.prompt()
+def study_for_quiz(course: str, topic: str) -> str:
+    """Build a study guide + practice questions + flashcards for a topic/module."""
+
+    return f"""Help me prepare for a quiz/test on a topic in my Canvas course. This is study preparation ONLY - do not open, answer, or submit any real graded quiz.
+
+Target course: "{course}"
+Topic / module: "{topic}"
+
+Steps:
+1. get_courses -> find the course id for "{course}".
+2. get_modules(course_id) -> find the module(s) matching "{topic}" and gather their items.
+3. Pull the source material for each relevant item:
+   - Page items -> get_page_content(course_id, page_url)
+   - File items (readings/slides) -> read_document(content_id)
+   - Skim related assignments (get_assignments) and quizzes (get_quizzes) to gauge scope and likely format.
+4. Synthesize everything into a markdown study packet:
+   - **Study guide** - the key concepts, organized, with brief explanations.
+   - **Practice questions** - 8-12 questions in the likely quiz format, with the **Answer key** in a SEPARATE section so I can self-test first.
+   - **Flashcards** - term -> definition pairs for quick review.
+   - **Likely focus areas** - what the material emphasizes most.
+
+Note which module item each part came from, and flag anything you could not access."""
+
+
+@mcp.prompt()
+def weekly_briefing(days: str = "7") -> str:
+    """A prioritized cross-course briefing: what's due, missing, new, and how you're doing."""
+
+    return f"""Give me a prioritized briefing across all my Canvas courses for roughly the next {days} days. Call the tools below and SYNTHESIZE - don't just dump raw output.
+
+Gather:
+1. get_actionable_items() - everything I can still submit/act on, including undated items.
+2. get_planner(days_ahead={days}) - dated upcoming items.
+3. get_missing_submissions() - past-due, unsubmitted work.
+4. get_all_grades() - current standing per course.
+5. For each active course (get_courses), get_announcements(course_id) - anything new.
+
+Then write one markdown briefing:
+- **Do now / overdue** - missing or imminent work, earliest deadline first.
+- **Coming up** - due within {days} days.
+- **Undated but should be done** - actionable items with no deadline.
+- **New announcements** - brief, per course.
+- **Grades** - current score per course; flag anything slipping.
+- **Suggested focus order** - what to tackle first and why.
+
+Be concise and group by course where it helps."""
+
+
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------

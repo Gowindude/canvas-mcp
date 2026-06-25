@@ -62,7 +62,10 @@ Claude, published to a public GitHub repo.
 
 | Prompt | Purpose |
 | --- | --- |
-| `canvas_prompt_check` | Smoke test — confirms the MCP client (Claude Desktop) actually renders/runs server-provided prompts before we build the real study/summarize workflows on top. |
+| `canvas_prompt_check` | Smoke test — confirms the MCP client (Claude Desktop) actually renders/runs server-provided prompts. |
+| `summarize_reading(course, reading, pages="")` | Find a reading (module File via `read_document`, or Page via `get_page_content`) and produce TL;DR + section summaries + key terms + self-check questions. |
+| `study_for_quiz(course, topic)` | Pull a module's pages + readings + related assignments/quizzes → study guide + practice questions (with separate answer key) + flashcards. **Study prep only — explicitly instructs Claude not to take/submit a real graded quiz.** |
+| `weekly_briefing(days="7")` | Synthesize `get_actionable_items` + `get_planner` + `get_missing_submissions` + `get_all_grades` + announcements into a prioritized cross-course digest. |
 
 ### Write tools (gated behind `CANVAS_ENABLE_WRITES`, default off)
 

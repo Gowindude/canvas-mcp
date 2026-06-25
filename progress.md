@@ -258,3 +258,21 @@ Append-only. Newest entries at the bottom.
   the allowed domains" suggestion describes a sandboxed tool env, not this local
   server; the real fix is retry resilience (here) or, if a user's own
   network/VPN/firewall blocks `*.canvas-user-content.com`, allowing it there.
+- User confirmed (after restart) the retry fix resolved the PDF reads in Desktop.
+- **Workflow prompts — 3 `@mcp.prompt()` workflows** (4 prompts total) built on
+  the now-solid tool foundation:
+  - `summarize_reading(course, reading, pages="")` — resolve course → locate the
+    reading in modules (File→`read_document` via `content_id`, Page→
+    `get_page_content`) → TL;DR + section summaries + key terms + self-check Qs.
+    Optional `pages` range for PDFs.
+  - `study_for_quiz(course, topic)` — gather a module's pages + readings +
+    related assignments/quizzes → study guide + practice questions (answer key in
+    a separate section) + flashcards. Carries an explicit **study-prep-only**
+    guardrail (do not open/answer/submit a real graded quiz), consistent with the
+    earlier refusal to build auto quiz-taking.
+  - `weekly_briefing(days="7")` — synthesize actionable items + planner + missing
+    + grades + announcements into a prioritized cross-course digest.
+  - Verified: all four prompts register (`get_prompts()`), each renders without
+    template errors, optional `pages` omits cleanly, and the `days` arg wires
+    through to `get_planner`. Delivered as MCP prompts (not Desktop Skills) so
+    they ride the existing server connection.
