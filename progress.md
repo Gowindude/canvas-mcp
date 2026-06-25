@@ -235,3 +235,13 @@ Append-only. Newest entries at the bottom.
     `read_document`) consistent on the original `headers=HEADERS` pattern. The
     flakiness is environmental (sandbox network); the path works in Claude Desktop
     (image rendered, transcript + PDF text all succeeded on retry).
+- **Bug fix — `get_modules` now exposes `content_id`.** In Desktop, Claude
+  couldn't read a module PDF: `read_document`/`get_file_image` 403'd because
+  `get_modules` surfaced only the module *item* id (e.g. 3531859), not the
+  underlying file id (`content_id` = 12473077). Claude (correctly) reported the
+  file id "isn't exposed through the modules API," and `get_files` is restricted
+  in that course. Fix: add `content_id` to each module item + docstring guidance
+  (File→read_document/get_file_image, Assignment→assignment tools, etc.).
+  Reproduced the 403 with the item id, then verified the full chain
+  get_modules → `content_id` → `read_document` reads the 23-page PDF.
+  (`search_course_content` returns module id+name only, no items — no gap there.)

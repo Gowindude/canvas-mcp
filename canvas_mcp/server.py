@@ -760,9 +760,14 @@ async def get_modules(course_id: str) -> Union[list[dict[str, Any]], str]:
         course_id: The Canvas course id.
 
     Returns a list of modules (id, name, state) each with its items. Every item
-    includes all available links: ``html_url`` (open it in Canvas),
-    ``external_url`` (the real external website, for external-link/tool items)
-    and ``page_url`` (the slug to pass to ``get_page_content`` for Page items).
+    includes all available links and ids: ``html_url`` (open it in Canvas),
+    ``external_url`` (the real external website, for external-link/tool items),
+    ``page_url`` (the slug to pass to ``get_page_content`` for Page items) and
+    ``content_id`` — the id of the underlying object, NOT the module item id.
+    Use ``content_id`` (with ``type``) to act on the item: for a ``File`` pass
+    it to ``read_document`` / ``get_file_image``; for an ``Assignment`` to
+    ``get_assignment_details`` / ``submit_assignment``; for a ``Quiz`` to
+    ``get_quizzes`` results; for a ``Discussion`` to ``get_discussion_entries``.
     Returns an error string on failure.
     """
 
@@ -780,6 +785,7 @@ async def get_modules(course_id: str) -> Union[list[dict[str, Any]], str]:
                 "id": item.get("id"),
                 "title": item.get("title"),
                 "type": item.get("type"),
+                "content_id": item.get("content_id"),
                 "html_url": item.get("html_url"),
                 "external_url": item.get("external_url"),
                 "page_url": item.get("page_url"),
