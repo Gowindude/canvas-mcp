@@ -124,3 +124,38 @@ Append-only. Newest entries at the bottom.
     academic dishonesty; the write toggle doesn't change what it does. Told the
     user plainly and offered the legit study-only framing. Documented the
     exclusion in README + plan.
+
+## 2026-06-24
+
+- Brainstormed a next wave of features with the user (image/OCR reading from
+  discussions, YouTube transcript extraction, "everything I can still submit"
+  including undated work, and skills/workflows). Agreed delivery for workflows
+  = **MCP prompts** (`@mcp.prompt()`) rather than Desktop's Skills feature, so
+  they ride on the already-working server connection (no separate install /
+  folder-access unknowns).
+- YouTube research: `youtube-transcript-api` (v1.2.4, Jan 2026) is free, no API
+  key, no headless browser, handles auto-captions — the planned dependency when
+  we build transcript extraction. Caveat: scrapes YouTube so cloud IPs get
+  blocked, but this server runs locally so that's a non-issue.
+- **Added `get_actionable_items`** (read, cross-course by default; **45 tools**).
+  Solves the "no due date → invisible to calendar/planner" gap. Two deduped
+  sources: (1) submittable assignments the student hasn't acted on yet —
+  including ones with `due_at = null`; (2) module items whose completion
+  requirement (submit/contribute/mark-done/view) is unmet (catches non-assignment
+  pages/discussions an instructor marked required). Dedupe normalizes module
+  items onto the assignment key namespace so a gradable item with a `must_submit`
+  requirement is listed once. Single-course mode returns the course error string
+  directly; cross-course mode collects per-course errors so one restricted course
+  can't abort the scan.
+  - **Live-verified (read-only, safe):** cross-course returned 21 items, 3 of
+    them undated ("REVISED … OPTIONAL" dropboxes that calendar/planner miss).
+    None of the user's 6 courses configure module completion requirements
+    (0/297 items), so Source 2 had no live data — exercised it instead with a
+    mock test asserting dedupe (assignment listed once, module dup suppressed),
+    Source 2 firing (must_view page), and all filters (already-submitted /
+    none / locked / completed excluded). Single-course valid→list, invalid→error
+    string. All passed.
+- **Added `canvas_prompt_check` prompt** (first `@mcp.prompt()`) as a smoke test
+  to confirm Claude Desktop surfaces MCP prompts before building the real
+  study/summarize workflows. Verified it registers (`get_prompts()` lists it).
+  Next step pending user: restart Desktop and confirm the prompt appears/runs.

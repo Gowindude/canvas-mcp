@@ -50,6 +50,13 @@ Claude, published to a public GitHub repo.
 | `get_conversations` | `GET /conversations` |
 | `get_conversation` | `GET /conversations/{id}` |
 | `download_file` | `GET /files/{id}` then GET the file URL → write to local disk (not gated) |
+| `get_actionable_items` | per course: `GET /courses/{id}/assignments?include[]=submission` (submittable + unsubmitted, incl. undated) **+** `GET /courses/{id}/modules?include[]=items&include[]=content_details` (unmet completion requirements); deduped into one key namespace. Optional `course_id`; cross-course by default. Surfaces work the calendar/planner miss because it isn't dated. |
+
+### Prompts (MCP `@mcp.prompt()`, surfaced to the client)
+
+| Prompt | Purpose |
+| --- | --- |
+| `canvas_prompt_check` | Smoke test — confirms the MCP client (Claude Desktop) actually renders/runs server-provided prompts before we build the real study/summarize workflows on top. |
 
 ### Write tools (gated behind `CANVAS_ENABLE_WRITES`, default off)
 

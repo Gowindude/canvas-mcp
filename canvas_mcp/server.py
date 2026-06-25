@@ -1042,6 +1042,182 @@ async def get_missing_submissions() -> Union[list[dict[str, Any]], str]:
     ]
 
 
+# Submission types that don't represent an online action the student can take
+# here (paper hand-ins, ungraded items, "no submission" placeholders).
+_NON_ACTIONABLE_SUBMISSION_TYPES = {"none", "not_graded", "on_paper"}
+
+# Human-readable description of each Canvas module completion requirement.
+_REQUIREMENT_LABELS = {
+    "must_submit": "Submit this item",
+    "must_contribute": "Contribute (e.g. post/reply to a discussion)",
+    "must_mark_done": "Mark as done",
+    "must_view": "View this item",
+    "min_score": "Score at least the required minimum",
+}
+
+
+def _module_item_key(item: dict[str, Any]) -> str:
+    """Stable dedupe key for a module item, sharing a namespace with assignments.
+
+    A module item that points at an assignment/quiz must collapse onto the same
+    key the assignment source produces (``assignment:{id}``) so a gradable item
+    with a ``must_submit`` requirement is listed once, not twice.
+    """
+
+    itype = item.get("type")
+    content_id = item.get("content_id")
+    if itype == "Assignment":
+        return f"assignment:{content_id}"
+    if itype == "Quiz":
+        return f"quiz:{content_id}"
+    if itype == "Discussion":
+        return f"discussion:{content_id}"
+    if itype == "Page":
+        return f"page:{item.get('page_url') or content_id}"
+    return f"item:{item.get('id')}"
+
+
+async def _actionable_for_course(
+    course_id: str, course_name: Optional[str]
+) -> list[dict[str, Any]]:
+    """Collect every still-actionable item in one course. Raises CanvasError.
+
+    Two sources, deduped:
+      1. Submittable assignments the student hasn't acted on yet (incl. ones
+         with no due date — exactly what the calendar/planner miss).
+      2. Module items whose completion requirement is not yet met (catches
+         non-assignment pages/discussions the instructor marked as required).
+    """
+
+    items: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    # --- Source 1: submittable, unsubmitted, unlocked assignments ----------
+    assignments = await _paginate(
+        f"/courses/{course_id}/assignments", {"include[]": "submission"}
+    )
+    for a in assignments:
+        sub_types = a.get("submission_types") or []
+        if not {t for t in sub_types if t not in _NON_ACTIONABLE_SUBMISSION_TYPES}:
+            continue
+        if a.get("locked_for_user"):
+            continue
+        submission = a.get("submission") or {}
+        if submission.get("submitted_at") or submission.get("workflow_state") in {
+            "submitted",
+            "graded",
+            "pending_review",
+            "complete",
+        }:
+            continue
+        key = f"assignment:{a.get('id')}"
+        seen.add(key)
+        items.append(
+            {
+                "course_id": course_id,
+                "course_name": course_name,
+                "source": "assignment",
+                "title": a.get("name"),
+                "type": ", ".join(sub_types),
+                "what_to_do": f"Submit ({', '.join(sub_types)})",
+                "due_date": a.get("due_at"),
+                "points_possible": a.get("points_possible"),
+                "assignment_id": a.get("id"),
+                "html_url": a.get("html_url"),
+            }
+        )
+
+    # --- Source 2: module items with an unmet completion requirement -------
+    modules = await _paginate(
+        f"/courses/{course_id}/modules",
+        {"include[]": ["items", "content_details"]},
+    )
+    for module in modules:
+        for item in module.get("items") or []:
+            requirement = item.get("completion_requirement") or {}
+            if not requirement or requirement.get("completed"):
+                continue
+            key = _module_item_key(item)
+            if key in seen:
+                continue
+            seen.add(key)
+            details = item.get("content_details") or {}
+            req_type = requirement.get("type")
+            items.append(
+                {
+                    "course_id": course_id,
+                    "course_name": course_name,
+                    "source": "module_item",
+                    "module": module.get("name"),
+                    "title": item.get("title"),
+                    "type": item.get("type"),
+                    "what_to_do": _REQUIREMENT_LABELS.get(req_type, req_type),
+                    "due_date": details.get("due_at"),
+                    "points_possible": details.get("points_possible"),
+                    "content_id": item.get("content_id"),
+                    "html_url": item.get("html_url"),
+                }
+            )
+
+    return items
+
+
+@mcp.tool()
+async def get_actionable_items(
+    course_id: Optional[str] = None,
+) -> Union[list[dict[str, Any]], str]:
+    """List everything you can still act on, including items with no due date.
+
+    Args:
+        course_id: Limit to one course. Omit to scan every active course.
+
+    Surfaces work the calendar and planner miss because it isn't dated: open
+    assignments you haven't submitted (even with no due date) and module items
+    whose completion requirement (submit / contribute / mark-done / view) you
+    haven't met yet. Each item carries ``what_to_do`` and a ``html_url`` to open
+    it. Returns an error string on failure.
+    """
+
+    # Single-course mode: surface the course's error directly, like other
+    # per-course tools.
+    if course_id:
+        try:
+            courses = await _active_courses()
+        except CanvasError:
+            courses = []
+        name = next(
+            (c.get("name") for c in courses if str(c.get("id")) == str(course_id)),
+            None,
+        )
+        try:
+            return await _actionable_for_course(course_id, name)
+        except CanvasError as exc:
+            return str(exc)
+
+    # Cross-course mode: don't let one restricted course abort the whole scan.
+    try:
+        courses = await _active_courses()
+    except CanvasError as exc:
+        return str(exc)
+
+    result: list[dict[str, Any]] = []
+    for course in courses:
+        cid = course.get("id")
+        if not cid:
+            continue
+        try:
+            result.extend(await _actionable_for_course(str(cid), course.get("name")))
+        except CanvasError as exc:
+            result.append(
+                {
+                    "course_id": cid,
+                    "course_name": course.get("name"),
+                    "error": str(exc),
+                }
+            )
+    return result
+
+
 @mcp.tool()
 async def get_planner(days_ahead: int = 14) -> Union[list[dict[str, Any]], str]:
     """List unified Canvas Planner items across all courses for the next N days.
@@ -2010,6 +2186,23 @@ async def mark_module_item_not_done(
         "module_id": module_id,
         "item_id": item_id,
     }
+
+
+# ---------------------------------------------------------------------------
+# Prompts (reusable workflows surfaced to the MCP client)
+# ---------------------------------------------------------------------------
+
+
+@mcp.prompt()
+def canvas_prompt_check() -> str:
+    """Smoke test: confirm this MCP client can see and run server prompts."""
+
+    return (
+        "This is a smoke-test prompt from the Canvas MCP server. If you can see "
+        "and run this, then MCP prompts are working. Reply with a one-line "
+        "confirmation, then call the get_current_user tool and tell me which "
+        "Canvas account I'm logged in as."
+    )
 
 
 # ---------------------------------------------------------------------------
