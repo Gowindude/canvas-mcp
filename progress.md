@@ -182,3 +182,34 @@ Append-only. Newest entries at the bottom.
   - Pending user: restart Desktop, run `get_file_image` on file 12473098, and
     confirm Claude can see/describe the image (the rendering half the spike
     can't self-test).
+- **Image-vision spike CONFIRMED in Desktop** — user ran `get_file_image` and
+  Claude correctly described the silhouette family graphic. The inline-image
+  path renders, so the embedded-media harvester is cleared to build.
+- **Embedded-media harvester — 3 read tools (49 total)** + new pinned dep
+  `youtube-transcript-api==1.2.4`:
+  - `_harvest_media(html)`: parses the **raw HTML before `strip_html`** and pulls
+    `<img>` (with Canvas `file_id` from src or `data-api-endpoint`) and YouTube
+    embeds (`<iframe>`/`<a>` via `_extract_youtube_id`, all URL shapes incl.
+    youtu.be / embed / shorts / nocookie). De-dupes within a field.
+  - `get_page_media(course_id, page_url)` and `get_discussion_media(course_id,
+    topic_id)` (prompt + every post, tagged with `found_in` + `author`) inventory
+    embeds; images are then viewable via the existing `get_file_image(file_id)`.
+  - `get_youtube_transcript(video, languages=None)`: accepts a video id or any
+    YouTube URL; runs the **sync** library via `asyncio.to_thread` so the event
+    loop isn't blocked. Returns joined transcript + timestamped segments.
+  - **Transitive `requests`:** the library is sync and depends on `requests`. The
+    repo's "never requests" rule is about *our* HTTP code (all Canvas calls stay
+    httpx/async); the blocking fetch is thread-isolated and we never write
+    `requests` ourselves. Documented in plan.md.
+  - **Live-verified (read-only, sandbox disabled for the YouTube/CDN hosts the
+    local command sandbox blocks):** `get_discussion_media(42932,504978)` found 2
+    attributed images (prompt's `family.jpg` + a screenshot in Emily Archer's
+    post); `(42932,504980)` found the YouTube embed; chained
+    `get_file_image` (renders) and `get_youtube_transcript` (en, manual captions,
+    75 segments, real text). `get_page_media` runs clean; bad video id → graceful
+    `VideoUnavailable` error string. Offline unit tests assert harvester +
+    id-extraction across all URL shapes and Canvas-vs-external images.
+  - NOTE: in these courses the graded-discussion media lives in the discussion
+    *topic message* (mirrors the assignment description), which `get_discussion_media`
+    reads. Assignment-description-only media (non-discussion) isn't harvested yet
+    — add `get_assignment_media` if needed.

@@ -50,6 +50,10 @@ Claude, published to a public GitHub repo.
 | `get_conversations` | `GET /conversations` |
 | `get_conversation` | `GET /conversations/{id}` |
 | `download_file` | `GET /files/{id}` then GET the file URL → write to local disk (not gated) |
+| `get_file_image` | `GET /files/{id}` → follow redirect to CDN → return bytes as a FastMCP `Image` (visual content Claude can see). Non-images / >8 MB rejected. |
+| `get_page_media` | `GET /courses/{id}/pages/{url}` → `_harvest_media(body)` (parse raw HTML *before* stripping) → embedded images (with `file_id`) + YouTube embeds (with `video_id`) |
+| `get_discussion_media` | `GET .../discussion_topics/{id}` + `/view` → harvest media from prompt + every post, tagged with author/location |
+| `get_youtube_transcript` | `youtube-transcript-api` `YouTubeTranscriptApi().fetch(video_id, languages)` run via `asyncio.to_thread` (library is sync/`requests`) → joined transcript + timestamped segments |
 | `get_actionable_items` | per course: `GET /courses/{id}/assignments?include[]=submission` (submittable + unsubmitted, incl. undated) **+** `GET /courses/{id}/modules?include[]=items&include[]=content_details` (unmet completion requirements); deduped into one key namespace. Optional `course_id`; cross-course by default. Surfaces work the calendar/planner miss because it isn't dated. |
 
 ### Prompts (MCP `@mcp.prompt()`, surfaced to the client)
@@ -102,7 +106,14 @@ Safety design:
 - Errors returned as strings (not exceptions) so Claude sees a usable message.
 
 ## Dependencies (pinned)
-`fastmcp==2.14.7`, `httpx==0.28.1`, `python-dotenv==1.2.2`, `beautifulsoup4==4.13.4`.
+`fastmcp==2.14.7`, `httpx==0.28.1`, `python-dotenv==1.2.2`, `beautifulsoup4==4.13.4`,
+`youtube-transcript-api==1.2.4`.
+
+> Note: `youtube-transcript-api` is sync and pulls in `requests` transitively.
+> The repo's "httpx async only — never requests" rule governs *our* HTTP code
+> (all Canvas calls stay httpx/async); the library's blocking fetch is isolated
+> in a worker thread via `asyncio.to_thread`, so it never blocks the event loop
+> and we never write `requests` ourselves.
 
 ## Repo setup order
 git init → write+stage `.gitignore` → write all files → `gh repo create` →

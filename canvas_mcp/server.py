@@ -12,8 +12,10 @@ Run with either:
 
 from __future__ import annotations
 
+import asyncio
 import mimetypes
 import os
+import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional, Union
@@ -23,6 +25,7 @@ from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from fastmcp import FastMCP
 from fastmcp.utilities.types import Image
+from youtube_transcript_api import YouTubeTranscriptApi
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -338,6 +341,98 @@ def _build_discussion_entry(
         "replies": [
             _build_discussion_entry(reply, participants)
             for reply in (raw.get("replies") or [])
+        ],
+    }
+
+
+# Matches a YouTube video id inside the common embed/link URL shapes Canvas
+# produces (watch?v=, youtu.be/, /embed/, /v/, /shorts/, nocookie variant).
+_YOUTUBE_ID_RE = re.compile(
+    r"(?:youtube(?:-nocookie)?\.com/(?:watch\?(?:[^ ]*&)?v=|embed/|v/|shorts/)"
+    r"|youtu\.be/)([\w-]{11})"
+)
+
+
+def _extract_youtube_id(url: Optional[str]) -> Optional[str]:
+    """Pull the 11-char video id out of any YouTube URL, or None."""
+
+    if not url:
+        return None
+    match = _YOUTUBE_ID_RE.search(url)
+    return match.group(1) if match else None
+
+
+def _harvest_media(html: Optional[str]) -> dict[str, list[dict[str, Any]]]:
+    """Extract embedded images and YouTube videos from a raw HTML field.
+
+    Canvas rich-text is stored as HTML; ``strip_html`` would discard every
+    ``<img>`` and ``<iframe>``. This runs on the *raw* HTML first so embedded
+    media is recoverable: images carry their Canvas ``file_id`` (from the src or
+    ``data-api-endpoint``) for use with ``get_file_image``; YouTube embeds carry
+    their video id for use with ``get_youtube_transcript``.
+    """
+
+    if not html:
+        return {"images": [], "youtube": []}
+
+    soup = BeautifulSoup(html, "html.parser")
+
+    images: list[dict[str, Any]] = []
+    seen_images: set[str] = set()
+    for img in soup.find_all("img"):
+        src = img.get("src")
+        file_id: Optional[str] = None
+        for candidate in (img.get("data-api-endpoint"), src):
+            if candidate:
+                match = re.search(r"/files/(\d+)", candidate)
+                if match:
+                    file_id = match.group(1)
+                    break
+        key = file_id or src
+        if not key or key in seen_images:
+            continue
+        seen_images.add(key)
+        images.append(
+            {
+                "file_id": file_id,
+                "alt": (img.get("alt") or "").strip(),
+                "src": src,
+                "canvas_hosted": file_id is not None,
+            }
+        )
+
+    youtube: list[dict[str, Any]] = []
+    seen_videos: set[str] = set()
+    for tag in soup.find_all(["iframe", "a"]):
+        video_id = _extract_youtube_id(tag.get("src") or tag.get("href"))
+        if video_id and video_id not in seen_videos:
+            seen_videos.add(video_id)
+            youtube.append(
+                {
+                    "video_id": video_id,
+                    "url": f"https://www.youtube.com/watch?v={video_id}",
+                }
+            )
+
+    return {"images": images, "youtube": youtube}
+
+
+def _fetch_youtube_transcript_sync(
+    video_id: str, languages: tuple[str, ...]
+) -> dict[str, Any]:
+    """Blocking transcript fetch (the library uses ``requests`` under the hood).
+
+    Always call via ``asyncio.to_thread`` so the event loop is never blocked.
+    """
+
+    fetched = YouTubeTranscriptApi().fetch(video_id, languages=list(languages))
+    return {
+        "language": getattr(fetched, "language", None),
+        "language_code": getattr(fetched, "language_code", None),
+        "is_generated": getattr(fetched, "is_generated", None),
+        "snippets": [
+            {"text": snippet.text, "start": snippet.start}
+            for snippet in fetched
         ],
     }
 
@@ -1677,6 +1772,152 @@ async def get_file_image(file_id: str) -> Union[Image, str]:
     # e.g. "image/jpeg" -> "jpeg"; fall back to png if Canvas omits the subtype.
     image_format = content_type.split("/")[-1] or "png"
     return Image(data=data, format=image_format)
+
+
+_MEDIA_HINT = (
+    "View an image with get_file_image(file_id). Read a video with "
+    "get_youtube_transcript(video_id)."
+)
+
+
+@mcp.tool()
+async def get_page_media(course_id: str, page_url: str) -> Union[dict[str, Any], str]:
+    """List images and YouTube videos embedded in a Canvas page.
+
+    Args:
+        course_id: The Canvas course id.
+        page_url: The page slug (from ``get_modules`` item ``page_url`` or
+            ``get_pages``).
+
+    Canvas pages store rich text as HTML, so embedded media would be lost by the
+    usual text extraction. This recovers it: each image includes its Canvas
+    ``file_id`` (pass to ``get_file_image`` to see it) and each video includes
+    its ``video_id`` (pass to ``get_youtube_transcript`` to read it). Returns an
+    error string on failure.
+    """
+
+    try:
+        page = await _get_one(f"/courses/{course_id}/pages/{page_url}")
+    except CanvasError as exc:
+        return str(exc)
+
+    media = _harvest_media(page.get("body"))
+    return {
+        "page": page.get("title"),
+        "images": media["images"],
+        "youtube": media["youtube"],
+        "hint": _MEDIA_HINT,
+    }
+
+
+@mcp.tool()
+async def get_discussion_media(
+    course_id: str, topic_id: str
+) -> Union[dict[str, Any], str]:
+    """List images and YouTube videos embedded in a discussion (prompt + posts).
+
+    Args:
+        course_id: The Canvas course id.
+        topic_id: The Canvas discussion topic id.
+
+    Scans the discussion prompt and every post/reply for embedded media, tagging
+    each with where it was found and who posted it. Each image includes its
+    ``file_id`` (for ``get_file_image``) and each video its ``video_id`` (for
+    ``get_youtube_transcript``). Returns an error string on failure.
+    """
+
+    try:
+        topic = await _get_one(f"/courses/{course_id}/discussion_topics/{topic_id}")
+        data = await _get_one(
+            f"/courses/{course_id}/discussion_topics/{topic_id}/view"
+        )
+    except CanvasError as exc:
+        return str(exc)
+
+    participants = {
+        person.get("id"): person.get("display_name")
+        for person in (data.get("participants") or [])
+    }
+
+    # (location, author, raw_html) for the prompt and every non-deleted entry.
+    sources: list[tuple[str, Optional[str], Optional[str]]] = [
+        ("prompt", None, topic.get("message"))
+    ]
+
+    def walk(entries: list[dict[str, Any]]) -> None:
+        for entry in entries:
+            if not entry.get("deleted"):
+                sources.append(
+                    (
+                        f"post {entry.get('id')}",
+                        participants.get(entry.get("user_id")),
+                        entry.get("message"),
+                    )
+                )
+            walk(entry.get("replies") or [])
+
+    walk(data.get("view") or [])
+
+    images: list[dict[str, Any]] = []
+    youtube: list[dict[str, Any]] = []
+    for location, author, html in sources:
+        media = _harvest_media(html)
+        for image in media["images"]:
+            images.append({**image, "found_in": location, "author": author})
+        for video in media["youtube"]:
+            youtube.append({**video, "found_in": location, "author": author})
+
+    return {
+        "topic": topic.get("title"),
+        "images": images,
+        "youtube": youtube,
+        "hint": _MEDIA_HINT,
+    }
+
+
+@mcp.tool()
+async def get_youtube_transcript(
+    video: str, languages: Optional[list[str]] = None
+) -> Union[dict[str, Any], str]:
+    """Fetch the transcript/captions of a YouTube video.
+
+    Args:
+        video: A YouTube video id or any YouTube URL (watch, youtu.be, embed).
+        languages: Preferred language codes in order (default ``["en"]``). The
+            first available is returned; falls back to auto-generated captions.
+
+    Use this to read a lecture/video embedded in a course (find video ids with
+    ``get_page_media`` / ``get_discussion_media``). Returns the joined transcript
+    text plus timestamped segments, or an error string if the video has no
+    captions or can't be reached.
+    """
+
+    video_id = _extract_youtube_id(video) or video.strip()
+    if not video_id:
+        return f"Error: could not determine a YouTube video id from '{video}'."
+
+    preferred = tuple(languages) if languages else ("en",)
+    try:
+        result = await asyncio.to_thread(
+            _fetch_youtube_transcript_sync, video_id, preferred
+        )
+    except Exception as exc:  # noqa: BLE001 - library raises many specific types
+        return (
+            f"Error: could not fetch a transcript for video '{video_id}'. "
+            f"{type(exc).__name__}: {exc}"
+        )
+
+    snippets = result["snippets"]
+    return {
+        "video_id": video_id,
+        "url": f"https://www.youtube.com/watch?v={video_id}",
+        "language": result["language"],
+        "language_code": result["language_code"],
+        "auto_generated": result["is_generated"],
+        "segment_count": len(snippets),
+        "transcript": " ".join(s["text"] for s in snippets).strip(),
+        "segments": snippets,
+    }
 
 
 # ---------------------------------------------------------------------------
