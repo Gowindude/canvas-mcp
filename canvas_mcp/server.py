@@ -124,8 +124,16 @@ if _GITHUB_CLIENT_ID and _GITHUB_CLIENT_SECRET and _MCP_SERVER_BASE_URL:
         from key_value.aio.stores.redis import RedisStore as _RedisStore  # type: ignore[import]
         from key_value.aio.wrappers.encryption import FernetEncryptionWrapper as _FernetWrap  # type: ignore[import]
 
+        import redis.asyncio as _aioredis  # type: ignore[import]
+
+        # from_url() handles rediss:// TLS automatically; RedisStore(url=)
+        # does not enable ssl on its own.
+        _redis_client = _aioredis.from_url(
+            _redis_url,
+            decode_responses=False,
+        )
         _client_storage = _FernetWrap(
-            key_value=_RedisStore(url=_redis_url),
+            key_value=_RedisStore(client=_redis_client),
             source_material=_jwt_key,
             salt="canvas-mcp-oauth-clients",
         )
