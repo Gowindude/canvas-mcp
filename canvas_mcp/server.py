@@ -107,18 +107,34 @@ _mcp_auth = None
 if _GITHUB_CLIENT_ID and _GITHUB_CLIENT_SECRET and _MCP_SERVER_BASE_URL:
     from fastmcp.server.auth.providers.github import GitHubProvider as _GitHubProvider  # type: ignore[import]
 
-    # MCP_JWT_SIGNING_KEY must be a stable secret (32+ hex chars) set in the
-    # environment.  FastMCP encrypts its on-disk client registry with a key
-    # derived from this value; without it the key is random per-startup and
-    # every restart invalidates all registered OAuth clients ("Client Not
-    # Registered").  Generate once with: python -c "import secrets; print(secrets.token_hex(32))"
+    # MCP_JWT_SIGNING_KEY: stable secret (32+ hex chars) used to sign FastMCP
+    # JWTs and to derive the storage encryption key.  Without it the key is
+    # random per-startup and all registered OAuth clients are forgotten on
+    # every restart ("Client Not Registered").
+    # Generate: python -c "import secrets; print(secrets.token_hex(32))"
     _jwt_key = os.getenv("MCP_JWT_SIGNING_KEY") or None
+
+    # REDIS_URL: when set, client registrations are stored in Redis so they
+    # survive both restarts AND redeploys.  Without it, registrations live on
+    # disk (lost on each Render redeploy).
+    # Set to your Upstash URL: rediss://default:<password>@<host>:<port>
+    _client_storage = None
+    _redis_url = os.getenv("REDIS_URL")
+    if _redis_url and _jwt_key:
+        from key_value.aio.stores.redis import RedisStore as _RedisStore  # type: ignore[import]
+        from key_value.aio.wrappers.encryption import FernetEncryptionWrapper as _FernetWrap  # type: ignore[import]
+
+        _client_storage = _FernetWrap(
+            key_value=_RedisStore(url=_redis_url),
+            source_material=_jwt_key,
+        )
 
     _mcp_auth = _GitHubProvider(
         client_id=_GITHUB_CLIENT_ID,
         client_secret=_GITHUB_CLIENT_SECRET,
         base_url=_MCP_SERVER_BASE_URL,
         jwt_signing_key=_jwt_key,
+        client_storage=_client_storage,
     )
 
 mcp = FastMCP("Canvas", auth=_mcp_auth)

@@ -28,3 +28,5 @@ services:
         sync: false          # set to https://<your-service>.onrender.com
       - key: MCP_JWT_SIGNING_KEY
         sync: false          # generate: python -c "import secrets; print(secrets.token_hex(32))"
+      - key: REDIS_URL
+        sync: false          # Upstash Redis URL: rediss://default:<pw>@<host>:<port>
