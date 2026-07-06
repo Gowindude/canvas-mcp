@@ -124,14 +124,19 @@ if _GITHUB_CLIENT_ID and _GITHUB_CLIENT_SECRET and _MCP_SERVER_BASE_URL:
         from key_value.aio.stores.redis import RedisStore as _RedisStore  # type: ignore[import]
         from key_value.aio.wrappers.encryption import FernetEncryptionWrapper as _FernetWrap  # type: ignore[import]
 
+        import ssl as _ssl
         import redis.asyncio as _aioredis  # type: ignore[import]
 
-        # ssl_cert_reqs=None disables cert verification — required for Upstash
-        # free tier on python:3.12-slim which may not trust its CA chain.
+        # Build an SSL context that skips cert verification — needed for
+        # Upstash on python:3.12-slim where the CA chain may not be trusted.
+        _ssl_ctx = _ssl.create_default_context()
+        _ssl_ctx.check_hostname = False
+        _ssl_ctx.verify_mode = _ssl.CERT_NONE
+
         _redis_client = _aioredis.from_url(
             _redis_url,
             decode_responses=False,
-            ssl_cert_reqs=None,
+            ssl_context=_ssl_ctx,
         )
         _client_storage = _FernetWrap(
             key_value=_RedisStore(client=_redis_client),
