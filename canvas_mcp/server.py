@@ -126,11 +126,12 @@ if _GITHUB_CLIENT_ID and _GITHUB_CLIENT_SECRET and _MCP_SERVER_BASE_URL:
 
         import redis.asyncio as _aioredis  # type: ignore[import]
 
-        # from_url() handles rediss:// TLS automatically; RedisStore(url=)
-        # does not enable ssl on its own.
+        # ssl_cert_reqs=None disables cert verification — required for Upstash
+        # free tier on python:3.12-slim which may not trust its CA chain.
         _redis_client = _aioredis.from_url(
             _redis_url,
             decode_responses=False,
+            ssl_cert_reqs=None,
         )
         _client_storage = _FernetWrap(
             key_value=_RedisStore(client=_redis_client),
