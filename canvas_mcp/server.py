@@ -120,29 +120,23 @@ if _GITHUB_CLIENT_ID and _GITHUB_CLIENT_SECRET and _MCP_SERVER_BASE_URL:
     # Set to your Upstash URL: rediss://default:<password>@<host>:<port>
     _client_storage = None
     _redis_url = os.getenv("REDIS_URL")
-    if _redis_url and _jwt_key:
+    if _redis_url:
+        from urllib.parse import urlparse as _urlparse
         from key_value.aio.stores.redis import RedisStore as _RedisStore  # type: ignore[import]
-        from key_value.aio.wrappers.encryption import FernetEncryptionWrapper as _FernetWrap  # type: ignore[import]
-
-        import ssl as _ssl
         import redis.asyncio as _aioredis  # type: ignore[import]
 
-        # Build an SSL context that skips cert verification — needed for
-        # Upstash on python:3.12-slim where the CA chain may not be trusted.
-        _ssl_ctx = _ssl.create_default_context()
-        _ssl_ctx.check_hostname = False
-        _ssl_ctx.verify_mode = _ssl.CERT_NONE
-
-        _redis_client = _aioredis.from_url(
-            _redis_url,
+        _p = _urlparse(_redis_url)
+        # Explicit ssl=True so redis-py uses SSLConnection regardless of URL
+        # scheme parsing — avoids AbstractConnection rejecting SSL kwargs.
+        _redis_client = _aioredis.Redis(
+            host=_p.hostname,
+            port=_p.port or 6379,
+            password=_p.password,
+            username=_p.username or "default",
+            ssl=_p.scheme in ("rediss",),
             decode_responses=False,
-            ssl_context=_ssl_ctx,
         )
-        _client_storage = _FernetWrap(
-            key_value=_RedisStore(client=_redis_client),
-            source_material=_jwt_key,
-            salt="canvas-mcp-oauth-clients",
-        )
+        _client_storage = _RedisStore(client=_redis_client)
 
     _mcp_auth = _GitHubProvider(
         client_id=_GITHUB_CLIENT_ID,
