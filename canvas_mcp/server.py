@@ -107,10 +107,18 @@ _mcp_auth = None
 if _GITHUB_CLIENT_ID and _GITHUB_CLIENT_SECRET and _MCP_SERVER_BASE_URL:
     from fastmcp.server.auth.providers.github import GitHubProvider as _GitHubProvider  # type: ignore[import]
 
+    # MCP_JWT_SIGNING_KEY must be a stable secret (32+ hex chars) set in the
+    # environment.  FastMCP encrypts its on-disk client registry with a key
+    # derived from this value; without it the key is random per-startup and
+    # every restart invalidates all registered OAuth clients ("Client Not
+    # Registered").  Generate once with: python -c "import secrets; print(secrets.token_hex(32))"
+    _jwt_key = os.getenv("MCP_JWT_SIGNING_KEY") or None
+
     _mcp_auth = _GitHubProvider(
         client_id=_GITHUB_CLIENT_ID,
         client_secret=_GITHUB_CLIENT_SECRET,
         base_url=_MCP_SERVER_BASE_URL,
+        jwt_signing_key=_jwt_key,
     )
 
 mcp = FastMCP("Canvas", auth=_mcp_auth)

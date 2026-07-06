@@ -26,3 +26,5 @@ services:
         sync: false
       - key: MCP_SERVER_BASE_URL
         sync: false          # set to https://<your-service>.onrender.com
+      - key: MCP_JWT_SIGNING_KEY
+        sync: false          # generate: python -c "import secrets; print(secrets.token_hex(32))"
