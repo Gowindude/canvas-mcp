@@ -1,0 +1,28 @@
+# Render.com Blueprint — deploys canvas-mcp as a free Web Service.
+# Commit this file and Render will pick it up automatically.
+#
+# After the first deploy, set the env vars manually in the Render dashboard
+# (Environment tab) — they are marked sync:false so Render never auto-fills them.
+
+services:
+  - type: web
+    name: canvas-mcp
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m canvas_mcp.server
+    # Render's free tier: 512 MB RAM, spins down after ~15 min of inactivity.
+    # First request after a cold start can take 30-60 s.
+    plan: free
+    envVars:
+      - key: CANVAS_API_TOKEN
+        sync: false          # set manually in the Render dashboard
+      - key: CANVAS_BASE_URL
+        sync: false
+      - key: CANVAS_ENABLE_WRITES
+        value: "false"       # keep read-only; change in dashboard if needed
+      - key: GITHUB_CLIENT_ID
+        sync: false
+      - key: GITHUB_CLIENT_SECRET
+        sync: false
+      - key: MCP_SERVER_BASE_URL
+        sync: false          # set to https://<your-service>.onrender.com

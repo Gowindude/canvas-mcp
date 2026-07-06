@@ -276,3 +276,19 @@ Append-only. Newest entries at the bottom.
     template errors, optional `pages` omits cleanly, and the `days` arg wires
     through to `get_planner`. Delivered as MCP prompts (not Desktop Skills) so
     they ride the existing server connection.
+
+## 2026-07-01
+
+- **Remote deployment (HTTP + GitHub OAuth)**
+  - **Confirmed**: Claude.ai custom connectors require OAuth 2.0 — static bearer
+    tokens are explicitly "not yet supported" per Anthropic docs. Raw bearer auth
+    works for curl testing but cannot be added as a Claude mobile connector.
+  - Added GitHub OAuth via `FastMCP.GitHubProvider` (~10 lines): set
+    `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `MCP_SERVER_BASE_URL` → provider
+    activates at module load; absent vars → auth=None (stdio mode unchanged).
+  - Transport selection in `main()`: Render injects `PORT` at runtime →
+    `mcp.run(transport="http", host="0.0.0.0", port=PORT)`; no PORT → `mcp.run()`
+    (stdio, existing Claude Desktop behaviour untouched).
+  - Added `Dockerfile` (python:3.12-slim), `.dockerignore` (excludes .env/.venv/.git),
+    and `render.yaml` (free-tier Web Service, 6 env vars marked sync:false).
+  - Updated `.env.example` with new vars and GitHub OAuth App setup instructions.

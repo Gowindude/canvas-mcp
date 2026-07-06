@@ -89,7 +89,31 @@ WRITES_DISABLED_MESSAGE = (
     "Claude Desktop / your MCP client, and try again."
 )
 
-mcp = FastMCP("Canvas")
+# ---------------------------------------------------------------------------
+# Auth (HTTP / remote deployment only)
+# ---------------------------------------------------------------------------
+# When GITHUB_CLIENT_ID + GITHUB_CLIENT_SECRET + MCP_SERVER_BASE_URL are set,
+# the server uses GitHub OAuth via FastMCP's GitHubProvider.  MCP clients
+# (Claude.ai custom connectors) drive the OAuth dance; users log in with their
+# GitHub account and the provider issues a scoped FastMCP JWT.
+#
+# When these vars are absent (local / stdio use), _mcp_auth is None and the
+# server runs without authentication — consistent with the existing behaviour.
+_GITHUB_CLIENT_ID: Optional[str] = os.getenv("GITHUB_CLIENT_ID")
+_GITHUB_CLIENT_SECRET: Optional[str] = os.getenv("GITHUB_CLIENT_SECRET")
+_MCP_SERVER_BASE_URL: str = os.getenv("MCP_SERVER_BASE_URL", "")
+
+_mcp_auth = None
+if _GITHUB_CLIENT_ID and _GITHUB_CLIENT_SECRET and _MCP_SERVER_BASE_URL:
+    from fastmcp.server.auth.providers.github import GitHubProvider as _GitHubProvider  # type: ignore[import]
+
+    _mcp_auth = _GitHubProvider(
+        client_id=_GITHUB_CLIENT_ID,
+        client_secret=_GITHUB_CLIENT_SECRET,
+        base_url=_MCP_SERVER_BASE_URL,
+    )
+
+mcp = FastMCP("Canvas", auth=_mcp_auth)
 
 
 # ---------------------------------------------------------------------------
@@ -2784,9 +2808,19 @@ Be concise and group by course where it helps."""
 
 
 def main() -> None:
-    """Run the MCP server over stdio."""
+    """Run the MCP server.
 
-    mcp.run()
+    Transport selection:
+    - Render (and other PaaS): PORT env var is injected automatically → HTTP
+      transport on 0.0.0.0:<PORT>, endpoint at /mcp.
+    - Local / Claude Desktop: no PORT → stdio transport (existing behaviour).
+    """
+
+    port_str = os.getenv("PORT")
+    if port_str:
+        mcp.run(transport="http", host="0.0.0.0", port=int(port_str))
+    else:
+        mcp.run()
 
 
 if __name__ == "__main__":
