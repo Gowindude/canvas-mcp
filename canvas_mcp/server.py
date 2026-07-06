@@ -127,6 +127,7 @@ if _GITHUB_CLIENT_ID and _GITHUB_CLIENT_SECRET and _MCP_SERVER_BASE_URL:
         _client_storage = _FernetWrap(
             key_value=_RedisStore(url=_redis_url),
             source_material=_jwt_key,
+            salt="canvas-mcp-oauth-clients",
         )
 
     _mcp_auth = _GitHubProvider(
