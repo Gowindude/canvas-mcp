@@ -135,6 +135,7 @@ if _GITHUB_CLIENT_ID and _GITHUB_CLIENT_SECRET and _MCP_SERVER_BASE_URL:
             username=_p.username or "default",
             ssl=_p.scheme in ("rediss",),
             decode_responses=False,
+            protocol=2,  # force RESP2 — Upstash free tier doesn't support RESP3
         )
         _client_storage = _RedisStore(client=_redis_client)
 
