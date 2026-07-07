@@ -121,21 +121,16 @@ if _GITHUB_CLIENT_ID and _GITHUB_CLIENT_SECRET and _MCP_SERVER_BASE_URL:
     _client_storage = None
     _redis_url = os.getenv("REDIS_URL")
     if _redis_url:
-        from urllib.parse import urlparse as _urlparse
         from key_value.aio.stores.redis import RedisStore as _RedisStore  # type: ignore[import]
         import redis.asyncio as _aioredis  # type: ignore[import]
 
-        _p = _urlparse(_redis_url)
-        # Explicit ssl=True so redis-py uses SSLConnection regardless of URL
-        # scheme parsing — avoids AbstractConnection rejecting SSL kwargs.
-        _redis_client = _aioredis.Redis(
-            host=_p.hostname,
-            port=_p.port or 6379,
-            password=_p.password,
-            username=_p.username or "default",
-            ssl=_p.scheme in ("rediss",),
+        # from_url parses scheme/host/port/password/TLS correctly.
+        # Use rediss:// (two s) for Upstash TLS — redis:// is plaintext and
+        # Upstash will drop the connection before AUTH completes.
+        _redis_client = _aioredis.from_url(
+            _redis_url,
             decode_responses=False,
-            protocol=2,  # force RESP2 — Upstash free tier doesn't support RESP3
+            protocol=2,  # RESP2 — Upstash free tier doesn't support RESP3
         )
         _client_storage = _RedisStore(client=_redis_client)
 
