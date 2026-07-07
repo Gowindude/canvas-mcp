@@ -163,8 +163,11 @@ async def _lifespan(server: Any):
                         redirect_uris=[AnyUrl(_pre_uri)],
                     )
                 )
-            except Exception:
-                pass  # already registered or storage unavailable — non-fatal
+                print(f"[canvas-mcp] pre-registered client {_pre_id}", flush=True)
+            except Exception as _e:
+                print(f"[canvas-mcp] pre-registration FAILED: {_e}", flush=True)
+        else:
+            print("[canvas-mcp] MCP_PREREGISTERED_CLIENT_ID or MCP_PREREGISTERED_REDIRECT_URI not set — skipping pre-registration", flush=True)
     yield
 
 
