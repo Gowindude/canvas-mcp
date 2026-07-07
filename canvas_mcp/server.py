@@ -17,6 +17,7 @@ import io
 import mimetypes
 import os
 import re
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional, Union
@@ -142,7 +143,32 @@ if _GITHUB_CLIENT_ID and _GITHUB_CLIENT_SECRET and _MCP_SERVER_BASE_URL:
         client_storage=_client_storage,
     )
 
-mcp = FastMCP("Canvas", auth=_mcp_auth)
+
+# Pre-register MCP clients whose IDs are permanently cached by the client app
+# (e.g. Claude.ai never re-registers after the first attempt — it reuses the
+# same client_id forever).  Set MCP_PREREGISTERED_CLIENT_ID and
+# MCP_PREREGISTERED_REDIRECT_URI in the environment to seed on every startup.
+@asynccontextmanager
+async def _lifespan(server: Any):
+    if _mcp_auth is not None:
+        _pre_id = os.getenv("MCP_PREREGISTERED_CLIENT_ID")
+        _pre_uri = os.getenv("MCP_PREREGISTERED_REDIRECT_URI")
+        if _pre_id and _pre_uri:
+            try:
+                from mcp.shared.auth import OAuthClientInformationFull
+                from pydantic import AnyUrl
+                await _mcp_auth.register_client(
+                    OAuthClientInformationFull(
+                        client_id=_pre_id,
+                        redirect_uris=[AnyUrl(_pre_uri)],
+                    )
+                )
+            except Exception:
+                pass  # already registered or storage unavailable — non-fatal
+    yield
+
+
+mcp = FastMCP("Canvas", auth=_mcp_auth, lifespan=_lifespan)
 
 
 # ---------------------------------------------------------------------------

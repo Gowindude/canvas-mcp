@@ -30,3 +30,7 @@ services:
         sync: false          # generate: python -c "import secrets; print(secrets.token_hex(32))"
       - key: REDIS_URL
         sync: false          # Upstash Redis URL: rediss://default:<pw>@<host>:<port>
+      - key: MCP_PREREGISTERED_CLIENT_ID
+        sync: false          # Claude.ai's cached OAuth client_id (never changes per server URL)
+      - key: MCP_PREREGISTERED_REDIRECT_URI
+        sync: false          # Claude.ai's redirect URI: https://claude.ai/api/mcp/auth_callback
