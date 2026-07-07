@@ -130,7 +130,7 @@ if _GITHUB_CLIENT_ID and _GITHUB_CLIENT_SECRET and _MCP_SERVER_BASE_URL:
         # Upstash will drop the connection before AUTH completes.
         _redis_client = _aioredis.from_url(
             _redis_url,
-            decode_responses=False,
+            decode_responses=True,
             protocol=2,  # RESP2 — Upstash free tier doesn't support RESP3
         )
         _client_storage = _RedisStore(client=_redis_client)
